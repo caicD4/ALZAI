@@ -46,6 +46,42 @@ class GeminiClient:
         key = self._api_key or get_gemini_api_key()
         return genai.Client(api_key=key)
 
+    def generate_json(
+        self,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        temperature: float = 0.2,
+    ) -> str:
+        """Sends a prompt to Gemini and returns raw cleaned JSON text response.
+
+        Args:
+            prompt: The full prompt text including user query and schema instructions.
+            system_instruction: Optional system instruction for Gemini.
+            temperature: Sampling temperature (default: 0.2 for low variance).
+
+        Returns:
+            Cleaned JSON string response from Gemini.
+        """
+        client = self._get_client()
+
+        config_args = {
+            "response_mime_type": "application/json",
+            "temperature": temperature,
+        }
+        if system_instruction:
+            config_args["system_instruction"] = system_instruction
+
+        response = client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(**config_args),
+        )
+
+        if not response or not response.text:
+            raise ValueError("Gemini API returned an empty or null response.")
+
+        return self._clean_json_text(response.text)
+
     def generate_json_plan(self, user_request: str, schema_dict: Dict[str, Any]) -> str:
         """Sends research prompt to Gemini and returns raw JSON text response.
 
@@ -56,28 +92,17 @@ class GeminiClient:
         Returns:
             Cleaned JSON string response from Gemini.
         """
-        client = self._get_client()
-
         prompt = (
-            f"{PLANNER_SYSTEM_PROMPT}\n\n"
             f"User Research Request: {user_request}\n\n"
             f"Required JSON Schema:\n{json.dumps(schema_dict, indent=2)}\n\n"
             "Respond ONLY with the JSON ResearchPlan object:"
         )
 
-        response = client.models.generate_content(
-            model=self.model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.2,
-            ),
+        return self.generate_json(
+            prompt=prompt,
+            system_instruction=PLANNER_SYSTEM_PROMPT,
+            temperature=0.2,
         )
-
-        if not response or not response.text:
-            raise ValueError("Gemini API returned an empty or null response.")
-
-        return self._clean_json_text(response.text)
 
     @staticmethod
     def _clean_json_text(text: str) -> str:
@@ -87,3 +112,4 @@ class GeminiClient:
             cleaned = re.sub(r"^```(?:json)?\n?", "", cleaned)
             cleaned = re.sub(r"\n?```$", "", cleaned)
         return cleaned.strip()
+

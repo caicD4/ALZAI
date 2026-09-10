@@ -1,11 +1,27 @@
 """Core business logic, orchestration, and domain models."""
 
+from core.brand_voice import (
+    BrandProfile,
+    ContentOutline,
+    ContentOutlinePoint,
+    DefaultVoiceProfile,
+    DraftContent,
+    FactualError,
+    RevisionPassResult,
+    StyleError,
+    VerificationReport,
+    VoiceAlignmentEvaluation,
+    VoiceProfile,
+)
 from core.evidence import (
     ClaimCheck,
     EvidenceItem,
     FetchSnapshot,
     Finding,
+    INSIGHT_TYPES,
     NumberFact,
+    ResearchInsight,
+    SOURCE_ROLES,
     Source,
 )
 from core.research_plan import (
@@ -15,17 +31,43 @@ from core.research_plan import (
     ResearchQuestion,
     StoppingCriteria,
 )
+from core.synthesis import (
+    ClaimMap,
+    ClaimMapEntry,
+    ContentAngle,
+    ContentStrategy,
+    ResearchBrief,
+)
 
 __all__ = [
+    "BrandProfile",
     "ClaimCheck",
+    "ClaimMap",
+    "ClaimMapEntry",
+    "ContentAngle",
+    "ContentOutline",
+    "ContentOutlinePoint",
+    "ContentStrategy",
     "ContrarianProbe",
+    "DefaultVoiceProfile",
+    "DraftContent",
     "EvidenceItem",
+    "FactualError",
     "FetchSnapshot",
     "Finding",
+    "INSIGHT_TYPES",
     "NumberFact",
+    "ResearchBrief",
     "ResearchHypothesis",
+    "ResearchInsight",
     "ResearchPlan",
     "ResearchQuestion",
+    "RevisionPassResult",
+    "SOURCE_ROLES",
     "Source",
     "StoppingCriteria",
+    "StyleError",
+    "VerificationReport",
+    "VoiceAlignmentEvaluation",
+    "VoiceProfile",
 ]

@@ -7,9 +7,12 @@ class Source(BaseModel):
     """Source metadata representing an external webpage or document."""
 
     source_id: str = Field(..., description="Unique identifier for the source")
-    url: str = Field(..., description="Canonical URL of the source")
+    url: str = Field(..., description="Original URL of the source")
+    canonical_url: str = Field(default="", description="Normalized canonical URL")
     domain: str = Field(..., description="Domain name extracted from URL")
     title: str = Field(..., description="Title of the source document")
+    query: Optional[str] = Field(default=None, description="Originating search query that discovered this source")
+    serp_rank: Optional[int] = Field(default=None, description="1-indexed rank in search engine results")
     published_at: Optional[date] = Field(default=None, description="Publication date if available")
     fetch_id: str = Field(..., description="ID referencing the immutable snapshot fetch")
     content_hash: str = Field(..., description="SHA-256 hash of cleaned source text")
@@ -17,25 +20,43 @@ class Source(BaseModel):
         default=3,
         ge=1,
         le=5,
-        description="Source quality tier (1=primary/official, 5=vendor/promotional)",
+        description="Source quality tier heuristic (1=primary/official, 5=vendor/promotional)",
     )
     vested_interest: bool = Field(
         default=False,
         description="Flag indicating vendor, promotional, or agency vested interest",
     )
 
+    def model_post_init(self, __context) -> None:
+        if not self.canonical_url:
+            self.canonical_url = self.url
+
+
 
 class FetchSnapshot(BaseModel):
     """Immutable snapshot of raw fetched and cleaned source text."""
 
     fetch_id: str = Field(..., description="Unique identifier for the fetch snapshot")
-    url: str = Field(..., description="URL of fetched source")
+    url: str = Field(..., description="Original requested URL")
+    final_url: str = Field(default="", description="Final URL after following HTTP redirects")
+    title: Optional[str] = Field(default=None, description="Document title extracted from page header/HTML")
     cleaned_text: str = Field(..., description="Cleaned readable text extracted from source")
     content_hash: str = Field(..., description="SHA-256 hash of cleaned_text")
+    content_type: str = Field(default="text/html", description="MIME content type of fetched response")
+    http_status: int = Field(default=200, description="HTTP status code of fetch response")
     fetched_at: datetime = Field(
         default_factory=datetime.now,
         description="Timestamp when source was fetched",
     )
+    error: Optional[str] = Field(
+        default=None,
+        description="Error message if fetch or cleaning encountered a failure",
+    )
+
+    def model_post_init(self, __context) -> None:
+        if not self.final_url:
+            self.final_url = self.url
+
 
 
 class NumberFact(BaseModel):
@@ -51,26 +72,85 @@ class NumberFact(BaseModel):
     sample: Optional[str] = Field(default=None, description="Sample size or details (e.g., 'n=500 SMBs')")
 
 
-class EvidenceItem(BaseModel):
-    """Verbatim quote card representing an atomic unit of extracted evidence."""
+INSIGHT_TYPES = (
+    "research_finding",
+    "statistic",
+    "expert_claim",
+    "company_claim",
+    "example",
+    "case_study",
+    "anecdote",
+    "mechanism",
+    "opinion",
+    "prediction",
+    "marketing_claim",
+    "definition",
+    "trend",
+    "limitation",
+    "contradiction",
+    "causal_claim",
+    "expert_opinion",
+    "promotional",
+)
 
-    evidence_id: str = Field(..., description="Unique identifier for the evidence card")
+SOURCE_ROLES = (
+    "evidence",
+    "context",
+    "discovery",
+    "primary_source",
+    "expert_perspective",
+    "example",
+    "company_claim",
+    "anecdotal",
+    "marketing",
+)
+
+
+class EvidenceItem(BaseModel):
+    """Verbatim insight card representing an atomic unit of extracted research material."""
+
+    evidence_id: str = Field(..., description="Unique identifier for the evidence/insight card")
     fetch_id: str = Field(..., description="ID referencing the source snapshot")
     locator: str = Field(..., description="Character span or chunk index locator within source text")
     verbatim_quote: str = Field(..., description="Exact verbatim text quote extracted from source")
     claim_summary: str = Field(..., description="Normalized one-sentence summary of the quote")
-    evidence_type: Literal[
-        "statistic",
-        "anecdote",
-        "expert_opinion",
-        "definition",
-        "causal_claim",
-        "prediction",
-        "promotional",
-    ] = Field(..., description="Categorized type of evidence")
+    insight_type: str = Field(
+        default="research_finding",
+        description="Categorized insight type (e.g., research_finding, statistic, expert_claim, company_claim, example, anecdote, mechanism, opinion, prediction, marketing_claim, definition, trend, limitation, contradiction)",
+    )
+    evidence_type: Optional[str] = Field(
+        default=None,
+        description="Legacy evidence type alias mapped to insight_type for backward compatibility",
+    )
+    source_role: str = Field(
+        default="evidence",
+        description="Architectural role of source material (e.g. evidence, context, discovery, primary_source, expert_perspective, example, company_claim, anecdotal, marketing)",
+    )
+    source_tier: int = Field(
+        default=3,
+        ge=1,
+        le=5,
+        description="Source quality tier heuristic (1=primary/academic, 5=marketing/blog)",
+    )
     attribution: Optional[str] = Field(
         default=None,
-        description="Primary or secondary attribution (e.g., 'secondary citation of Gartner 2019')",
+        description="Explicit entity/author attribution for the claim (e.g., 'Gartner 2023 survey', 'Company X spokesperson')",
+    )
+    suggested_writer_phrasing: Optional[str] = Field(
+        default=None,
+        description="Recommended phrasing for future content writer that preserves epistemic and attribution boundaries without upgrading claim strength",
+    )
+    limitations: Optional[str] = Field(
+        default=None,
+        description="Explicit caveats, sample limits, methodological bounds, or study disclaimers in source text",
+    )
+    substantive: bool = Field(
+        default=True,
+        description="Whether material contains substantive research value (False for generic marketing fluff or intros)",
+    )
+    relevance_explanation: Optional[str] = Field(
+        default=None,
+        description="Explicit explanation of why this insight answers or informs the research question",
     )
     numbers: List[NumberFact] = Field(
         default_factory=list,
@@ -85,20 +165,18 @@ class EvidenceItem(BaseModel):
         description="Result of deterministic containment check against source text",
     )
 
+    def model_post_init(self, __context) -> None:
+        if self.evidence_type and not self.insight_type:
+            self.insight_type = self.evidence_type
+        elif self.insight_type and not self.evidence_type:
+            self.evidence_type = self.insight_type
 
-class Finding(BaseModel):
-    """Synthesized finding derived from multiple verified evidence items."""
 
-    finding_id: str = Field(..., description="Unique identifier for the finding")
-    sub_question_id: str = Field(..., description="ID of the research question addressed")
-    statement: str = Field(..., description="Synthesized finding statement")
-    evidence_ids: List[str] = Field(
-        ..., description="List of supporting evidence_id values"
-    )
-    status: Literal["consensus", "contested", "single_source", "gap"] = Field(
-        default="single_source",
-        description="Consensus status of this finding across evidence",
-    )
+# Type alias for the Insight / Claim Interpretation Layer
+ResearchInsight = EvidenceItem
+
+# Import unified Finding from synthesis module for backward compatibility
+from core.synthesis import Finding
 
 
 class ClaimCheck(BaseModel):

@@ -43,16 +43,21 @@ class ResearchPlanner:
         client = self.llm_client or GeminiClient()
         schema_dict = ResearchPlan.model_json_schema()
 
-        # Call Gemini client to generate JSON string matching schema
-        raw_json = client.generate_json_plan(topic, schema_dict)
+        try:
+            raw_json = client.generate_json_plan(topic, schema_dict)
+        except Exception as err:
+            # Handle API network failure or 503 unavailability gracefully
+            print(f"[Notice] Gemini API unavailable ({err}); falling back to deterministic plan.")
+            return self._create_deterministic_plan(topic)
 
-        # Parse and validate with Pydantic; fails explicitly on invalid schema
+        # Parse and validate with Pydantic; fails explicitly on malformed output
         try:
             plan = ResearchPlan.model_validate_json(raw_json)
+            return plan
         except (ValidationError, Exception) as err:
             raise ValueError(f"Failed to parse Gemini response into a valid ResearchPlan: {err}") from err
 
-        return plan
+
 
     def _create_deterministic_plan(self, clean_topic: str) -> ResearchPlan:
         """Generates a deterministic placeholder ResearchPlan without external API calls."""
