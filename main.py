@@ -7,6 +7,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from agents import (
     ContentOutliner,
+    ContentQualityEngine,
     ContentVerifier,
     EvidenceExtractor,
     HumanBrandVoiceWriter,
@@ -253,36 +254,58 @@ async def run_pipeline_demo(topic: str) -> None:
     print(initial_draft.body_text)
     print(f"--------------------------")
 
-    # D. Content Verifier
-    print(f"\nAuditing Draft with Content Verifier (Dual-Axis Verification)...")
-    verifier = ContentVerifier(use_llm=use_llm)
-    report = verifier.verify_draft(initial_draft, brief, strat, voice=voice_profile)
+    # D. Stage 7: Content Quality Engine Evaluation
+    print(f"\n--- [STAGE 7] CONTENT QUALITY ENGINE EVALUATION ---")
+    quality_engine = ContentQualityEngine(use_llm=use_llm)
+    initial_quality_report = quality_engine.evaluate_quality(
+        initial_draft, brief, strat, outline=outline, voice=voice_profile
+    )
 
-    print(f"\nVerification Report Result:")
-    print(f"  Status: {'PASSED ✓' if report.is_passed else 'FAILED ✗'}")
-    print(f"  Overall Style Score: {report.voice_alignment.overall_style_score:.2f} / 1.00")
-    print(f"  Factual Errors ({len(report.factual_errors)}):")
-    for fe in report.factual_errors:
-        print(f"    - [{fe.category.upper()}] \"{fe.quote_in_draft}\" -> Fix: {fe.suggested_fix}")
-    print(f"  Style Errors ({len(report.style_errors)}):")
-    for se in report.style_errors:
-        print(f"    - [{se.category.upper()}] \"{se.quote_in_draft}\" -> Fix: {se.suggested_fix}")
+    print(f"\nContent Quality Report:")
+    print(f"  Overall Status: {initial_quality_report.overall_status.upper()}")
+    print(f"  Overall Score: {initial_quality_report.overall_score:.2f} / 1.00")
+    print(f"  Dimension Scores:")
+    print(f"    - Research Fidelity: {initial_quality_report.research_fidelity_score:.2f}")
+    print(f"    - Content Quality: {initial_quality_report.content_quality_score:.2f}")
+    print(f"    - Voice Alignment: {initial_quality_report.voice_alignment_score:.2f}")
+    print(f"    - Platform Fit: {initial_quality_report.platform_fit_score:.2f}")
+
+    print(f"\nIssues Detected ({len(initial_quality_report.issues)}):")
+    for iss in initial_quality_report.issues:
+        print(f"  - [{iss.severity.upper()}] [{iss.category}/{iss.sub_category}] {iss.description}")
+        print(f"    Affected: \"{iss.affected_text}\"")
+        print(f"    Suggested Fix: {iss.suggested_fix}")
+
+    if initial_quality_report.strengths:
+        print(f"\nContent Strengths ({len(initial_quality_report.strengths)}):")
+        for st in initial_quality_report.strengths:
+            print(f"  ✓ {st}")
 
     # E. Targeted Revision Worker (Max 2 Passes)
     final_content = initial_draft
-    if not report.is_passed:
-        print(f"\nExecuting Targeted Revision Worker (Max 2 Passes)...")
-        revision_worker = TargetedRevisionWorker(verifier=verifier, use_llm=use_llm, max_revisions=2)
-        final_content, history = revision_worker.execute_targeted_revision(
-            initial_draft, report, brief, strat, voice=voice_profile
+    final_quality_report = initial_quality_report
+    revision_history = []
+
+    if initial_quality_report.overall_status != "passed":
+        print(f"\nExecuting Targeted Quality Revision Pass(es) (Max 2 Passes)...")
+        revision_worker = TargetedRevisionWorker(use_llm=use_llm, max_revisions=2)
+        final_content, revision_history = revision_worker.execute_targeted_quality_revision(
+            initial_draft, initial_quality_report, brief, strat, outline=outline, voice=voice_profile, quality_engine=quality_engine
+        )
+        final_quality_report = quality_engine.evaluate_quality(
+            final_content, brief, strat, outline=outline, voice=voice_profile
         )
 
-        print(f"\nRevision History ({len(history)} passes executed):")
-        for pass_res in history:
-            print(f"  Pass #{pass_res.pass_number}: Passed={pass_res.verification_report.is_passed}")
-            print(f"  Fixes Applied: {len(pass_res.fixes_applied)}")
-            for fix in pass_res.fixes_applied:
-                print(f"    • {fix}")
+    print(f"\nRevision Pass(es) Executed ({len(revision_history)}):")
+    for pass_res in revision_history:
+        print(f"  Pass #{pass_res.pass_number}: Passed={pass_res.verification_report.is_passed}")
+        print(f"  Fixes Applied: {len(pass_res.fixes_applied)}")
+        for fix in pass_res.fixes_applied:
+            print(f"    • {fix}")
+
+    print(f"\nFinal Content Quality Report:")
+    print(f"  Overall Status: {final_quality_report.overall_status.upper()}")
+    print(f"  Overall Score: {final_quality_report.overall_score:.2f} / 1.00")
 
     # F. Final Output Presentation
     print("\n============================================================")

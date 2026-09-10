@@ -39,6 +39,11 @@ from core.synthesis import (
     ResearchBrief,
 )
 
+from core.quality_schemas import (
+    ContentQualityIssue,
+    ContentQualityReport,
+)
+
 __all__ = [
     "BrandProfile",
     "ClaimCheck",
@@ -47,6 +52,8 @@ __all__ = [
     "ContentAngle",
     "ContentOutline",
     "ContentOutlinePoint",
+    "ContentQualityIssue",
+    "ContentQualityReport",
     "ContentStrategy",
     "ContrarianProbe",
     "DefaultVoiceProfile",
