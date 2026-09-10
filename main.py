@@ -20,6 +20,7 @@ from config.gemini_config import is_api_key_available, load_environment
 from core import BrandProfile, DefaultVoiceProfile, FORMAT_CATALOG
 from core.evidence import FetchSnapshot
 from tools.fetcher import PageFetcher
+from tools.execution_trace import get_trace, reset_trace
 from tools.quote_verifier import verify_quote
 from tools.search_tool import SearchTool
 from tools.source_triage import SourceTriage
@@ -30,6 +31,7 @@ from tools.source_triage import SourceTriage
 async def run_pipeline_demo(topic: str, format_arg: str = "linkedin") -> None:
     load_environment()
     use_llm = is_api_key_available()
+    reset_trace()
 
     print("============================================================")
     print("      CONTENT RESEARCH AGENT - PIPELINE DEMONSTRATION       ")
@@ -134,10 +136,39 @@ async def run_pipeline_demo(topic: str, format_arg: str = "linkedin") -> None:
 
     print(f"\nTOTAL VERIFIED EVIDENCE ITEMS EXTRACTED: {len(all_extracted_items)}")
 
+    # 4b. Content Landscape Research (parallel concept: search existing content, then analyze)
+    print(f"\n--- [STAGE 4b] CONTENT LANDSCAPE RESEARCH ---")
+    from agents.landscape_analyzer import LandscapeAnalyzer
+    landscape_analyzer = LandscapeAnalyzer(use_llm=use_llm)
+    intent = plan.request_intent
+    if intent is None:
+        from core.request_intent import RequestIntent
+        intent = RequestIntent(subject=topic, task=topic)
+    landscape_queries = landscape_analyzer.generate_landscape_queries(intent)
+    print(f"Landscape Search Queries ({len(landscape_queries)}):")
+    for lq in landscape_queries:
+        print(f"  - {lq}")
+    landscape_refs = landscape_analyzer.search_landscape(landscape_queries)
+    print(f"Retrieved Existing Content References: {len(landscape_refs)}")
+    content_landscape = landscape_analyzer.analyze(intent, landscape_refs)
+    print(f"Landscape Analysis Mode: {landscape_analyzer.last_analysis_method or 'grounded'}")
+    if content_landscape.dominant_angles:
+        print(f"Dominant Angles: {content_landscape.dominant_angles}")
+    if content_landscape.content_gaps:
+        print(f"Content Gaps ({len(content_landscape.content_gaps)}):")
+        for gap in content_landscape.content_gaps:
+            print(f"  · {gap}")
+    if content_landscape.possible_original_angles:
+        print(f"Possible Original Angles ({len(content_landscape.possible_original_angles)}):")
+        for pa in content_landscape.possible_original_angles:
+            print(f"  · {pa}")
+    if content_landscape.recommended_differentiation:
+        print(f"Recommended Differentiation: {content_landscape.recommended_differentiation}")
+
     # 5. Research Synthesis & Content Strategy Stage
     print(f"\n--- [STAGE 5] RESEARCH SYNTHESIS & CONTENT STRATEGY ---")
     synthesizer = ResearchSynthesizer(use_llm=use_llm)
-    brief = synthesizer.synthesize_research(plan, all_extracted_items, topic)
+    brief = synthesizer.synthesize_research(plan, all_extracted_items, topic, content_landscape)
 
     print(f"\nInsight Processing Metrics:")
     print(f"  - Total Raw Insights: {brief.total_raw_insights}")
@@ -151,8 +182,10 @@ async def run_pipeline_demo(topic: str, format_arg: str = "linkedin") -> None:
         print(f"    Independent Sources: {f.independent_sources_count} (Total Insights: {f.source_count})")
 
     print(f"\nClaim Map Evaluation:")
-    print(f"  User Premise Verdict: {brief.claim_map.user_premise_verdict.upper()}")
-    print(f"  User Premise Explanation: {brief.claim_map.user_premise_explanation}")
+    if brief.claim_map.content_gaps:
+        print(f"  Content Gaps ({len(brief.claim_map.content_gaps)}):")
+        for gap in brief.claim_map.content_gaps:
+            print(f"    · {gap}")
     
     if brief.claim_map.safe_claims:
         print(f"\n  Safe Claims ({len(brief.claim_map.safe_claims)}):")
@@ -179,6 +212,12 @@ async def run_pipeline_demo(topic: str, format_arg: str = "linkedin") -> None:
     print(f"  Platform: {strat.platform} ({strat.content_type})")
     print(f"  Audience: {strat.audience}")
     print(f"  Objective: {strat.objective}")
+    if strat.selected_angle:
+        print(f"  Selected Angle: \"{strat.selected_angle.angle_title}\"")
+        if strat.selected_angle.distinctive_angle:
+            print(f"    Distinctive Angle: {strat.selected_angle.distinctive_angle}")
+        if strat.selected_angle.central_thesis:
+            print(f"    Thesis: {strat.selected_angle.central_thesis}")
     print(f"  Hook Direction: \"{strat.hook_direction}\"")
     print(f"  Desired Takeaway: {strat.desired_takeaway}")
 
@@ -205,9 +244,10 @@ async def run_pipeline_demo(topic: str, format_arg: str = "linkedin") -> None:
     )
 
     print(f"\nMulti-Format Content Bundle Generated ({len(bundle.pieces)} assets):")
+    print(f"Generation Mode: {multi_engine.generation_mode.upper()} (Gemini calls: {sum(multi_engine.llm_calls_per_format.values())}, revisions: {multi_engine.revision_total})")
     for fid, piece in bundle.pieces.items():
         print(f"\n============================================================")
-        print(f" FORMAT: {piece.platform.upper()} ({piece.format_id.upper()})")
+        print(f" FORMAT: {piece.platform.upper()} ({piece.format_id.upper()}) [MODE: {piece.generation_mode.upper()}]")
         print(f"============================================================")
         if piece.title:
             print(f"Title: {piece.title}")
@@ -228,6 +268,29 @@ async def run_pipeline_demo(topic: str, format_arg: str = "linkedin") -> None:
     print("\n============================================================")
     print("                 DEMONSTRATION COMPLETE                     ")
     print("============================================================")
+
+    # Execution trace summary
+    trace = get_trace()
+    summary = trace.summary()
+    print(f"\n============================================================")
+    print(f"              EXECUTION TRACE SUMMARY                        ")
+    print(f"============================================================")
+    print(f"  Total Gemini Calls: {summary['total_calls']}")
+    print(f"  Successes: {summary['successes']}")
+    print(f"  Failures: {summary['failures']}")
+    print(f"  Total LLM Duration: {summary['total_duration_s']}s")
+    if summary["failure_categories"]:
+        print(f"  Failure Breakdown:")
+        for cat, count in summary["failure_categories"].items():
+            print(f"    - {cat}: {count}")
+    print(f"\n  Call Details:")
+    for i, entry in enumerate(trace.entries, 1):
+        status_icon = "OK" if entry.status == "success" else "FAIL"
+        duration = f"{entry.duration_ms:.0f}ms"
+        error_info = f" [{entry.failure_category}]" if entry.failure_category and entry.status != "success" else ""
+        err_msg = f" - {entry.error_message[:80]}" if entry.error_message and entry.status != "success" else ""
+        print(f"    {i:2d}. [{status_icon}] {entry.stage:<20s} {duration:>8s}{error_info}{err_msg}")
+    print(f"============================================================")
 
 
 def main() -> None:

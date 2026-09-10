@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 from core.evidence import EvidenceItem, ResearchInsight
@@ -51,25 +51,27 @@ class ClaimMapEntry(BaseModel):
 
 
 class ClaimMap(BaseModel):
-    """Structured map of claims derived from research synthesis."""
+    """Structured map of claims to guide the writer.
+
+    This is a WRITING GUIDE, not a gate. It tells the writer which claims are
+    grounded in retrieved sources versus which must be framed as opinion,
+    attribution, or critical commentary. It NEVER blocks content creation.
+    """
 
     safe_claims: List[ClaimMapEntry] = Field(
-        default_factory=list, description="Claims the writer can reasonably make as established facts"
+        default_factory=list, description="Claims grounded in retrieved sources the writer can state directly"
     )
     qualified_claims: List[ClaimMapEntry] = Field(
-        default_factory=list, description="Claims requiring specific attribution or caveats"
+        default_factory=list, description="Claims requiring specific attribution or framing (e.g. 'critics say...', 'reported...')"
     )
     unsupported_claims: List[ClaimMapEntry] = Field(
-        default_factory=list, description="Claims not supported by current research pool"
+        default_factory=list, description="Claims NOT grounded in retrieved sources — writer must frame as opinion/commentary, not fact"
     )
     contradicted_claims: List[ClaimMapEntry] = Field(
-        default_factory=list, description="Claims contradicted by evidence"
+        default_factory=list, description="Claims for which retrieved sources present conflicting accounts — writer should acknowledge the dispute"
     )
-    user_premise_verdict: Literal["supported", "qualified", "unsupported", "contradicted"] = Field(
-        ..., description="Explicit assessment of the user's initial premise"
-    )
-    user_premise_explanation: str = Field(
-        ..., description="Detailed explanation of the verdict on the user's premise"
+    content_gaps: List[str] = Field(
+        default_factory=list, description="What the retrieved research did NOT cover — writers can explore these creatively"
     )
 
 
@@ -84,6 +86,10 @@ class ContentAngle(BaseModel):
     counterpoints: List[str] = Field(default_factory=list, description="Nuances or counterarguments to address")
     intended_audience: str = Field(..., description="Target audience segment")
     suitable_platform: str = Field(..., description="Platform fit (e.g. LinkedIn, Blog, X/Twitter, Newsletter)")
+    distinctive_angle: str = Field(
+        default="",
+        description="What makes this angle original / a content gap others are not covering",
+    )
 
 
 class ContentStrategy(BaseModel):
@@ -117,7 +123,10 @@ class ResearchBrief(BaseModel):
     case_studies_and_examples: List[str] = Field(default_factory=list, description="Useful examples, case studies, or anecdotes")
     research_gaps: List[str] = Field(default_factory=list, description="Unaddressed questions or missing data")
     content_angles: List[ContentAngle] = Field(default_factory=list, description="Derived content angles grounded in research")
-    recommended_strategy: ContentStrategy = Field(..., description="Platform-adapted content strategy")
+    recommended_strategy: Optional[ContentStrategy] = Field(default=None, description="Platform-adapted content strategy")
+    request_intent: Optional[Any] = Field(default=None, description="Parsed RequestIntent object if available")
+    content_landscape: Optional[Any] = Field(default=None, description="ContentLandscape object if landscape retrieval/analysis ran")
     total_raw_insights: int = Field(default=0, description="Total raw insights extracted before synthesis")
     retained_insights_count: int = Field(default=0, description="Insights retained in final synthesized brief")
     rejected_insights_count: int = Field(default=0, description="Insights rejected during synthesis filtering")
+

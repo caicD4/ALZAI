@@ -8,8 +8,11 @@ import {
   ChevronLeft, 
   ChevronRight,
   FileText,
-  Clock
+  Clock,
+  Check,
+  XCircle
 } from 'lucide-react';
+import type { HistoryEntry } from '../types/alzai';
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -18,6 +21,8 @@ interface SidebarProps {
   recentTopics: string[];
   onSelectRecent?: (topic: string) => void;
   onSelectRecentTopic?: (topic: string) => void;
+  history?: HistoryEntry[];
+  onSelectHistory?: (jobId: string) => void;
   activeView?: 'create' | 'history';
   onSelectView?: (view: 'create' | 'history') => void;
 }
@@ -29,6 +34,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   recentTopics = [],
   onSelectRecent,
   onSelectRecentTopic,
+  history = [],
+  onSelectHistory,
   activeView = 'create',
   onSelectView,
 }) => {
@@ -127,8 +134,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Clock className="w-3 h-3" />
             <span>Recent</span>
           </div>
-          {recentTopics.length === 0 ? (
+          {history.length === 0 && recentTopics.length === 0 ? (
             <div className="px-3 py-3 text-xs text-zinc-600 italic">No recent runs yet</div>
+          ) : history.length > 0 ? (
+            <div className="space-y-0.5">
+              {history.slice(0, 20).map((entry) => (
+                <button
+                  key={entry.job_id}
+                  onClick={() => onSelectHistory && onSelectHistory(entry.job_id)}
+                  className="w-full text-left px-3 py-2 rounded-md text-xs text-zinc-400 hover:text-zinc-200 hover:bg-[#141418] transition-colors group"
+                  title={`${entry.prompt} (${entry.job_id})`}
+                >
+                  <div className="flex items-start gap-2">
+                    {entry.status === 'completed' ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                    ) : entry.status === 'failed' ? (
+                      <XCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />
+                    ) : (
+                      <FileText className="w-3.5 h-3.5 text-zinc-600 group-hover:text-indigo-400 mt-0.5 shrink-0" />
+                    )}
+                    <span className="flex-1 truncate">{entry.prompt}</span>
+                  </div>
+                  <div className="flex items-center gap-2 ml-[22px] mt-0.5">
+                    <span className="text-[10px] font-mono text-zinc-600 uppercase">{entry.format_id}</span>
+                    <span className="text-[10px] text-zinc-600">
+                      {new Date(entry.updated_at || entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    {entry.generation_mode && (
+                      <span className="text-[10px] font-mono uppercase text-indigo-400/70">{entry.generation_mode}</span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
           ) : (
             <div className="space-y-0.5">
               {recentTopics.slice(0, 8).map((topic, idx) => (

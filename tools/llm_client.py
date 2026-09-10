@@ -1,10 +1,16 @@
 import json
 import re
+import time
 from typing import Any, Dict, Optional
 from google import genai
 from google.genai import types
 
 from config.gemini_config import get_gemini_api_key
+from tools.execution_trace import (
+    FailureCategory,
+    classify_exception,
+    get_trace,
+)
 
 PLANNER_SYSTEM_PROMPT = """You are an expert AI Research Planner.
 Your task is to create a comprehensive, structured research plan for a given user request.
@@ -31,7 +37,7 @@ System Guidelines:
 
 
 class GeminiClient:
-    """Simple wrapper for Google Gemini API for research planning."""
+    """Wrapper for Google Gemini API with execution tracing and structured failures."""
 
     def __init__(
         self,
@@ -40,7 +46,6 @@ class GeminiClient:
     ) -> None:
         self.model_name = model_name
         self._api_key = api_key
-
 
     def _get_client(self) -> genai.Client:
         key = self._api_key or get_gemini_api_key()
@@ -51,16 +56,21 @@ class GeminiClient:
         prompt: str,
         system_instruction: Optional[str] = None,
         temperature: float = 0.2,
+        stage_label: str = "",
     ) -> str:
-        """Sends a prompt to Gemini and returns raw cleaned JSON text response.
+        """Sends a prompt to Gemini, traces the call, returns raw cleaned JSON.
 
         Args:
             prompt: The full prompt text including user query and schema instructions.
             system_instruction: Optional system instruction for Gemini.
             temperature: Sampling temperature (default: 0.2 for low variance).
+            stage_label: Pipeline stage name for trace (e.g. 'ResearchPlanner').
 
         Returns:
             Cleaned JSON string response from Gemini.
+
+        Raises:
+            Exception: Re-raises after recording trace with structured failure category.
         """
         client = self._get_client()
 
@@ -71,16 +81,48 @@ class GeminiClient:
         if system_instruction:
             config_args["system_instruction"] = system_instruction
 
-        response = client.models.generate_content(
-            model=self.model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(**config_args),
-        )
+        t0 = time.monotonic()
+        try:
+            response = client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(**config_args),
+            )
 
-        if not response or not response.text:
-            raise ValueError("Gemini API returned an empty or null response.")
+            if not response or not response.text:
+                raise ValueError("Gemini API returned an empty or null response.")
 
-        return self._clean_json_text(response.text)
+            cleaned = self._clean_json_text(response.text)
+
+            # Basic JSON structure validation
+            try:
+                json.loads(cleaned)
+            except json.JSONDecodeError as je:
+                raise ValueError(f"Response is not valid JSON: {je}") from je
+
+            duration_ms = (time.monotonic() - t0) * 1000
+            get_trace().record(
+                stage=stage_label,
+                method="generate_json",
+                agent="GeminiClient",
+                status="success",
+                duration_ms=duration_ms,
+            )
+            return cleaned
+
+        except Exception as exc:
+            duration_ms = (time.monotonic() - t0) * 1000
+            cat = classify_exception(exc)
+            get_trace().record(
+                stage=stage_label,
+                method="generate_json",
+                agent="GeminiClient",
+                status="failure",
+                duration_ms=duration_ms,
+                error_message=str(exc)[:200],
+                failure_category=cat,
+            )
+            raise
 
     def generate_json_plan(self, user_request: str, schema_dict: Dict[str, Any]) -> str:
         """Sends research prompt to Gemini and returns raw JSON text response.
@@ -102,6 +144,7 @@ class GeminiClient:
             prompt=prompt,
             system_instruction=PLANNER_SYSTEM_PROMPT,
             temperature=0.2,
+            stage_label="ResearchPlanner",
         )
 
     @staticmethod
@@ -112,4 +155,3 @@ class GeminiClient:
             cleaned = re.sub(r"^```(?:json)?\n?", "", cleaned)
             cleaned = re.sub(r"\n?```$", "", cleaned)
         return cleaned.strip()
-

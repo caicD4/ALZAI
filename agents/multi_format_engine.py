@@ -22,6 +22,10 @@ class MultiFormatContentEngine:
     ) -> None:
         self.use_llm = use_llm
         self.max_revisions = max_revisions
+        self.generation_mode: str = "none"
+        self.llm_calls_total: int = 0
+        self.llm_calls_per_format: Dict[str, int] = {}
+        self.revision_total: int = 0
         if use_llm:
             self.llm_client = llm_client or GeminiClient()
         else:
@@ -61,6 +65,14 @@ class MultiFormatContentEngine:
             piece = self.generate_single_format(brief, base_strategy, spec, target_brand, target_voice)
             pieces[fid] = piece
 
+        modes = [p.generation_mode for p in pieces.values()]
+        if modes and all(m == "gemini" for m in modes):
+            self.generation_mode = "gemini"
+        elif modes and any(m == "fallback" for m in modes):
+            self.generation_mode = "fallback"
+        else:
+            self.generation_mode = "none"
+
         bundle_id = f"bundle-{hash(brief.brief_id + ''.join(target_format_ids)) & 0xffffffff:08x}"
         return ContentBundle(
             bundle_id=bundle_id,
@@ -88,6 +100,13 @@ class MultiFormatContentEngine:
 
         # 2. Write initial draft piece directly from ResearchBrief
         initial_piece = self.writer.write_format(brief, format_strat, outline, spec, target_brand, target_voice)
+        initial_piece.generation_mode = "gemini" if self.writer.last_write_method == "gemini" else "fallback"
+        initial_piece.revision_count = 0
+        calls: int = 0
+        if self.planner.last_plan_method == "gemini":
+            calls += 1
+        if self.writer.last_write_method == "gemini":
+            calls += 1
 
         # Wrap in DraftContent for Quality Engine evaluation
         draft_wrapper = self._piece_to_draft(initial_piece)
@@ -96,6 +115,8 @@ class MultiFormatContentEngine:
         quality_report = self.quality_engine.evaluate_quality(
             draft_wrapper, brief, base_strategy, outline=outline, brand=target_brand, voice=target_voice
         )
+        if self.quality_engine.last_quality_method == "gemini_rules":
+            calls += 1
 
         final_piece = initial_piece
         final_report = quality_report
@@ -105,13 +126,21 @@ class MultiFormatContentEngine:
             revised_draft, history = self.revision_worker.execute_targeted_quality_revision(
                 draft_wrapper, quality_report, brief, base_strategy, outline=outline, brand=target_brand, voice=target_voice, quality_engine=self.quality_engine
             )
-            final_report = self.quality_engine.evaluate_quality(
-                revised_draft, brief, base_strategy, outline=outline, brand=target_brand, voice=target_voice
-            )
-            final_piece = self._draft_to_piece(revised_draft, initial_piece, final_report)
+            calls += len(history)  # one targeted-revision LLM pass per revision
+            calls += len(history)  # one re-audit LLM pass per revision loop
+            final_piece = self._draft_to_piece(revised_draft, initial_piece, history[-1] if history else final_report)
+            if not final_piece.revision_count and history:
+                final_piece.revision_count = len(history)
+            if history:
+                final_report = history[-1]
+            else:
+                final_piece.revision_count = 0
         else:
             final_piece.quality_report = quality_report
 
+        self.revision_total += final_piece.revision_count
+        self.llm_calls_total += calls
+        self.llm_calls_per_format[spec.format_id] = calls
         return final_piece
 
     @staticmethod
@@ -144,4 +173,6 @@ class MultiFormatContentEngine:
             brief_id=original_piece.brief_id,
             version=draft.version,
             quality_report=report,
+            generation_mode=original_piece.generation_mode,
+            revision_count=len(draft.draft_id.split("-rev")) - 1 if "-rev" in draft.draft_id else 0,
         )

@@ -236,6 +236,7 @@ class ContentVerifier:
                 prompt=prompt,
                 system_instruction=VERIFIER_SYSTEM_PROMPT,
                 temperature=0.1,
+                stage_label="Verifier",
             )
             data = json.loads(raw_json)
             fact_list = [FactualError.model_validate(e) for e in data.get("factual_errors", [])]

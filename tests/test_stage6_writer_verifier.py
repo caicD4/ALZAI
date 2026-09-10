@@ -51,8 +51,6 @@ def sample_brief():
                 reasoning="Refuted by scientific consensus.",
             )
         ],
-        user_premise_verdict="qualified",
-        user_premise_explanation="IQ increases are supported for adaptive RFT protocols but not casual games.",
     )
 
     finding = Finding(

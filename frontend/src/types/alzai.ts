@@ -47,6 +47,8 @@ export interface ContentPiece {
   brief_id?: string;
   version: number;
   quality_report?: ContentQualityReport;
+  generation_mode?: 'gemini' | 'fallback' | 'none';
+  revision_count?: number;
 }
 
 export interface ContentBundle {
@@ -63,17 +65,52 @@ export interface QualifiedClaimSummary {
   caveat?: string;
 }
 
+export interface ContentLandscapeSummary {
+  topic: string;
+  total_references?: number;
+  dominant_angles?: string[];
+  saturated_angles?: string[];
+  repeated_arguments?: string[];
+  common_hooks?: string[];
+  common_framing?: string[];
+  audience_questions?: string[];
+  disagreements?: string[];
+  underexplored_perspectives?: string[];
+  content_gaps?: string[];
+  possible_original_angles?: string[];
+  recommended_differentiation?: string;
+}
+
+export interface AngleSummary {
+  title: string;
+  thesis: string;
+  selected?: boolean;
+  distinctive_angle?: string;
+}
+
+export interface RequestIntentSummary {
+  subject: string;
+  intent_type?: string;
+  stance?: string;
+  desired_content_type?: string;
+  proposition?: string;
+  research_goal?: string;
+}
+
 export interface ResearchBriefSummary {
   brief_id: string;
   topic: string;
-  user_premise_verdict: 'supported' | 'qualified' | 'unsupported' | 'contested';
-  user_premise_explanation: string;
   findings_count: number;
   safe_claims: string[];
   qualified_claims: QualifiedClaimSummary[];
   unsupported_claims: string[];
+  content_gaps: string[];
   key_mechanisms: string[];
   retained_insights_count: number;
+  intent?: RequestIntentSummary;
+  content_landscape?: ContentLandscapeSummary;
+  angles?: AngleSummary[];
+  selected_angle?: AngleSummary;
 }
 
 export interface ProgressStep {
@@ -88,11 +125,27 @@ export interface GenerationJob {
   prompt: string;
   format_id: string;
   status: 'queued' | 'processing' | 'completed' | 'failed';
+  generation_mode?: 'gemini' | 'fallback' | 'none';
   progress_steps: ProgressStep[];
   bundle?: ContentBundle;
   brief_summary?: ResearchBriefSummary;
   error_message?: string;
+  include_trace?: boolean;
+  trace_snapshot?: any;
   created_at: string;
+  updated_at?: string;
+}
+
+export interface HistoryEntry {
+  job_id: string;
+  prompt: string;
+  format_id: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  generation_mode?: string;
+  error_message?: string;
+  created_at: string;
+  updated_at?: string;
+  has_result: boolean;
 }
 
 export interface GenerationProgressEvent {

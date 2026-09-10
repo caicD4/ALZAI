@@ -77,6 +77,21 @@ def test_valid_gemini_response_produces_evidence_items(sample_snapshot, sample_q
     assert item.evidence_type == "statistic"
 
 
+# --- 1b. LLM Failure Degrades to Deterministic Evidence Extraction (no silent starvation) ---
+def test_llm_failure_falls_back_to_deterministic_extraction(sample_snapshot, sample_question):
+    mock_llm = MagicMock(spec=GeminiClient)
+    mock_llm.generate_json.side_effect = RuntimeError("429 RESOURCE_EXHAUSTED: Gemini quota exceeded")
+
+    extractor = EvidenceExtractor(llm_client=mock_llm, use_llm=True)
+    results = extractor.extract_evidence(sample_snapshot, sample_question)
+
+    assert len(results) >= 1, "LLM failure must not silently starve the evidence pipeline"
+    for item in results:
+        assert item.quote_verified is True
+        assert item.verbatim_quote in sample_snapshot.cleaned_text
+        assert "70-85%" in item.verbatim_quote
+
+
 # --- 2. Exact Quote Passes Verification ---
 def test_exact_quote_passes_verification(sample_snapshot, sample_question):
     extractor = EvidenceExtractor(use_llm=False)
@@ -228,26 +243,30 @@ def test_attribution_preserved(sample_snapshot, sample_question):
     assert results[0].attribution == "OpenAI report"
 
 
-# --- 8. Malformed Gemini Output is Rejected ---
-def test_malformed_gemini_output_rejected(sample_snapshot, sample_question):
+# --- 8. Malformed Gemini Output Falls Back to Deterministic Extraction ---
+def test_malformed_gemini_output_falls_back(sample_snapshot, sample_question):
     mock_llm = MagicMock(spec=GeminiClient)
     mock_llm.generate_json.return_value = "INVALID_NON_JSON_TEXT_RESPONSE"
 
     extractor = EvidenceExtractor(llm_client=mock_llm, use_llm=True)
     results = extractor.extract_evidence(sample_snapshot, sample_question)
 
-    assert results == []
+    assert len(results) >= 1
+    assert all(r.quote_verified for r in results)
+    assert all(r.verbatim_quote in sample_snapshot.cleaned_text for r in results)
 
 
-# --- 9. Gemini/API Failure Handled Without Fabricating Evidence ---
-def test_gemini_api_failure_handled(sample_snapshot, sample_question):
+# --- 9. Gemini/API Failure Falls Back to Deterministic Extraction ---
+def test_gemini_api_failure_falls_back(sample_snapshot, sample_question):
     mock_llm = MagicMock(spec=GeminiClient)
     mock_llm.generate_json.side_effect = RuntimeError("API connection timeout")
 
     extractor = EvidenceExtractor(llm_client=mock_llm, use_llm=True)
     results = extractor.extract_evidence(sample_snapshot, sample_question)
 
-    assert results == []
+    assert len(results) >= 1
+    assert all(r.quote_verified for r in results)
+    assert all(r.verbatim_quote in sample_snapshot.cleaned_text for r in results)
 
 
 # --- 10. Empty Source Produces No Fabricated Evidence ---

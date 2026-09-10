@@ -1,5 +1,13 @@
 """External tool integrations and utilities."""
 
+from tools.execution_trace import (
+    ExecutionTrace,
+    FailureCategory,
+    TraceEntry,
+    classify_exception,
+    get_trace,
+    reset_trace,
+)
 from tools.fetcher import (
     ContentTypeError,
     EmptyContentError,
@@ -30,6 +38,8 @@ __all__ = [
     "ContentTypeError",
     "DuckDuckGoSearchProvider",
     "EmptyContentError",
+    "ExecutionTrace",
+    "FailureCategory",
     "FetchError",
     "FetchSnapshot",
     "FetchTimeoutError",
@@ -45,6 +55,10 @@ __all__ = [
     "SearchTimeoutError",
     "SearchTool",
     "SourceTriage",
+    "TraceEntry",
+    "classify_exception",
+    "get_trace",
     "normalize_url",
+    "reset_trace",
     "verify_quote",
 ]

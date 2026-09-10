@@ -16,7 +16,7 @@ import type { ContentFormatSpec } from '../types/alzai';
 
 interface ComposerProps {
   formats: ContentFormatSpec[];
-  onSubmit: (prompt: string, format: string) => void;
+  onSubmit: (prompt: string, format: string, includeTrace?: boolean) => void;
   isSubmitting: boolean;
 }
 
@@ -40,11 +40,12 @@ const PRESETS = [
 export default function Composer({ onSubmit, isSubmitting }: ComposerProps) {
   const [prompt, setPrompt] = useState('');
   const [selectedFormat, setSelectedFormat] = useState('linkedin');
+  const [includeTrace, setIncludeTrace] = useState(false);
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!prompt.trim() || isSubmitting) return;
-    onSubmit(prompt.trim(), selectedFormat);
+    onSubmit(prompt.trim(), selectedFormat, includeTrace);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -142,6 +143,30 @@ export default function Composer({ onSubmit, isSubmitting }: ComposerProps) {
             </>
           )}
         </button>
+      </div>
+
+      {/* Advanced options row */}
+      <div className="flex items-center justify-between pt-1 -mt-1">
+        <label className="flex items-center gap-2 cursor-pointer select-none group">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={includeTrace}
+            onClick={() => setIncludeTrace(!includeTrace)}
+            className={`w-7 h-4 rounded-full transition relative ${
+              includeTrace ? 'bg-purple-600/70' : 'bg-gray-800'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 w-3 h-3 rounded-full transition-all ${
+                includeTrace ? 'left-3.5 bg-purple-200' : 'left-0.5 bg-gray-400'
+              }`}
+            />
+          </button>
+          <span className="text-[11px] text-gray-500 group-hover:text-gray-300 transition">
+            Capture detailed LLM execution trace (for debugging)
+          </span>
+        </label>
       </div>
     </div>
   );

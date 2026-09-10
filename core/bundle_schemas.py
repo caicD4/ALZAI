@@ -20,6 +20,8 @@ class ContentPiece(BaseModel):
     brief_id: Optional[str] = Field(default=None, description="ID of source ResearchBrief")
     version: int = Field(default=1, description="Draft version number")
     quality_report: Optional[ContentQualityReport] = Field(default=None, description="Quality audit report from Stage 7")
+    generation_mode: Optional[str] = Field(default=None, description="'gemini' | 'fallback' | 'none' — how this asset's prose was produced")
+    revision_count: int = Field(default=0, description="Number of targeted revision passes applied")
 
 
 class ContentBundle(BaseModel):

@@ -67,6 +67,7 @@ class VoiceProfileAnalyzer:
                 prompt=prompt,
                 system_instruction=VOICE_ANALYZER_SYSTEM_PROMPT,
                 temperature=0.2,
+                stage_label="VoiceAnalyzer",
             )
             data = json.loads(raw_json)
             data["is_default_profile"] = False

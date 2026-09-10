@@ -46,6 +46,8 @@ CRITICAL STRATEGY RULES:
 class MultiFormatPlanner:
     """Plans format-adapted strategies for individual content formats directly from a ResearchBrief."""
 
+    last_plan_method: Optional[str] = None
+
     def __init__(
         self,
         llm_client: Optional[GeminiClient] = None,
@@ -69,8 +71,11 @@ class MultiFormatPlanner:
         if self.use_llm and self.llm_client is not None:
             strat = self._plan_via_llm(brief, base_strategy, spec, brand, voice)
             if strat:
+                self.last_plan_method = "gemini"
                 return strat
+            self.last_plan_method = "grounded_fallback"
 
+        self.last_plan_method = "grounded_fallback"
         return self._plan_fallback(brief, base_strategy, spec)
 
     def _plan_via_llm(
@@ -94,12 +99,15 @@ class MultiFormatPlanner:
             f"Hook Style: {spec.hook_style}\n"
             f"Pacing: {spec.pacing}\n"
             f"CTA Style: {spec.cta_style}\n\n"
+            f"Selected Angle: {base_strategy.selected_angle.angle_title if base_strategy.selected_angle else 'None'} | Thesis: {base_strategy.thesis}\n"
+            f"Content Landscape Differentiation: {brief.content_landscape.recommended_differentiation if brief.content_landscape else 'None'}\n"
+            f"Content Gaps to Own: {brief.claim_map.content_gaps or 'None'}\n"
             f"Research Brief Findings: {[f.statement for f in brief.findings]}\n"
             f"Safe Claims: {[c.claim_text for c in brief.claim_map.safe_claims]}\n"
             f"Qualified Claims: {[{'claim': c.claim_text, 'caveat': c.required_attribution_or_caveat} for c in brief.claim_map.qualified_claims]}\n"
             f"Key Mechanisms: {brief.key_mechanisms}\n"
             f"Base Strategy Thesis: {base_strategy.thesis}\n\n"
-            "Formulate the FormatStrategy. Output JSON matching:\n"
+            "Formulate the FormatStrategy. The hook, narrative, and CTA must differentiate from the crowded landscape and address the identified content gaps. Output JSON matching:\n"
             "{\"format_id\": \"...\", \"topic\": \"...\", \"platform\": \"...\", \"audience\": \"...\", \"objective\": \"...\", "
             "\"central_thesis\": \"...\", \"hook_direction\": \"...\", \"narrative_structure\": [...], "
             "\"key_insights_to_emphasize\": [...], \"evidence_to_reference\": [...], \"counterpoints\": [...], "
@@ -111,6 +119,7 @@ class MultiFormatPlanner:
                 prompt=prompt,
                 system_instruction=FORMAT_PLANNER_SYSTEM_PROMPT,
                 temperature=0.2,
+                stage_label="FormatPlanner",
             )
             data = json.loads(raw_json)
             return FormatStrategy.model_validate(data)
@@ -126,25 +135,35 @@ class MultiFormatPlanner:
         """Deterministic fallback planner for offline/rate-limited execution."""
         safe_claims = [c.claim_text for c in brief.claim_map.safe_claims]
         qual_claims = [c.claim_text for c in brief.claim_map.qualified_claims]
+        finding_stmts = [f.statement for f in brief.findings]
+
+        subject = brief.topic
+        if hasattr(brief, 'request_intent') and brief.request_intent and brief.request_intent.subject:
+            subject = brief.request_intent.subject
+
+        primary_evidence = finding_stmts[0] if finding_stmts else (safe_claims[0] if safe_claims else "")
+        secondary_evidence = finding_stmts[1] if len(finding_stmts) > 1 else (qual_claims[0] if qual_claims else "")
+        counterpoints = base_strategy.counterpoints if base_strategy.counterpoints else []
+        evidence_refs = safe_claims[:2] if safe_claims else finding_stmts[:2]
 
         hook_map = {
-            "linkedin": f"Understanding the core operational shift in {brief.topic}. Here is what the research synthesis reveals.",
-            "x_thread": f"Key research findings and strategic implications regarding {brief.topic} (1/{spec.maximum_length}):",
-            "article": f"{brief.topic}: A Comprehensive Strategic & Evidence-Based Overview",
-            "newsletter": f"Strategic Breakdown: Key research perspectives on {brief.topic}",
-            "youtube": f"[VISUAL: Key concepts graphic] Exploring the fundamental mechanisms driving {brief.topic}.",
-            "short_video": f"Here is what research reveals about {brief.topic} in 60 seconds (0:00-0:05)",
-            "carousel": f"{brief.topic}: A Grounded Strategic Overview",
+            "linkedin": base_strategy.hook_direction or f"The take on {subject} nobody has posted yet.",
+            "x_thread": f"The argument about {subject} most people keep missing:",
+            "article": f"{subject}: {base_strategy.central_thesis if hasattr(base_strategy, 'central_thesis') and base_strategy.central_thesis else 'The Angle'}",
+            "newsletter": f"The {subject} take I couldn't stop thinking about",
+            "youtube": f"[COLD OPEN] Why {subject} deserves your attention.",
+            "short_video": f"The {subject} debate in 60 seconds",
+            "carousel": f"{subject}: The angles everyone is getting wrong",
         }
 
         cta_map = {
-            "linkedin": f"What key observations do you have on {brief.topic}?",
-            "x_thread": f"If you found this breakdown on {brief.topic} useful, repost and follow for more strategic insights.",
-            "article": f"Subscribe for weekly deep-dives into research-backed content strategies.",
-            "newsletter": f"Hit reply and let me know: What is your approach to {brief.topic}?",
-            "youtube": f"Subscribe and drop your thoughts on {brief.topic} in the comments below!",
-            "short_video": "Save this short and follow for daily 60-second cognitive science breakdowns!",
-            "carousel": "Save this post for your next training session and swipe left to share!",
+            "linkedin": f"What's your experience with {subject} — agree or disagree?",
+            "x_thread": f"Follow for original takes on {subject}.",
+            "article": f"Subscribe for more deep-dives like this.",
+            "newsletter": f"Hit reply: is this your experience with {subject}?",
+            "youtube": f"Like, subscribe, and tell me your take on {subject} in the comments!",
+            "short_video": f"Save this and follow for more hot takes!",
+            "carousel": f"Save this post — and tell me where I'm wrong!",
         }
 
         return FormatStrategy(
@@ -153,13 +172,14 @@ class MultiFormatPlanner:
             platform=spec.platform,
             audience=base_strategy.audience,
             objective=base_strategy.objective,
-            central_thesis=base_strategy.thesis or f"Adaptive training expands cognitive skills while casual apps yield task-specific practice effects.",
+            central_thesis=base_strategy.thesis or primary_evidence,
             hook_direction=hook_map.get(spec.format_id, base_strategy.hook_direction),
             narrative_structure=spec.structure,
-            key_insights_to_emphasize=safe_claims[:2] if safe_claims else [brief.topic],
-            evidence_to_reference=qual_claims[:1] if qual_claims else ["Cassidy et al. RFT trials"],
-            counterpoints=["Far-transfer gains require sustained adaptive load past automaticity."],
+            key_insights_to_emphasize=[s for s in [primary_evidence, secondary_evidence] if s][:2],
+            evidence_to_reference=evidence_refs[:2],
+            counterpoints=counterpoints[:2],
             cta=cta_map.get(spec.format_id, base_strategy.desired_takeaway),
             desired_takeaway=base_strategy.desired_takeaway,
             delivery_style_notes=f"Adhere to {spec.pacing} pacing and {spec.paragraph_style}.",
         )
+

@@ -55,8 +55,6 @@ def test_generate_job_lifecycle():
 
     mock_claim_map = ClaimMap(
         safe_claims=[ClaimMapEntry(claim_text="Claim 1", category="safe", reasoning="Reason")],
-        user_premise_verdict="supported",
-        user_premise_explanation="Premise explanation"
     )
 
     mock_strategy = ContentStrategy(

@@ -5,9 +5,16 @@ import ProgressTracker from './components/ProgressTracker';
 import FormatTabs from './components/FormatTabs';
 import ContentRenderer from './components/ContentRenderer';
 import ResearchTransparency from './components/ResearchTransparency';
-import type { ContentFormatSpec, ContentPiece, GenerationJob, ProgressStep } from './types/alzai';
-import { fetchFormats, fetchJobStatus, submitGenerateRequest, subscribeJobProgress } from './lib/api';
-import { AlertCircle } from 'lucide-react';
+import type { ContentFormatSpec, ContentPiece, GenerationJob, HistoryEntry, ProgressStep } from './types/alzai';
+import {
+  fetchFormats,
+  fetchGenerationHistory,
+  fetchJobStatus,
+  fetchJobTrace,
+  submitGenerateRequest,
+  subscribeJobProgress,
+} from './lib/api';
+import { AlertCircle, Activity } from 'lucide-react';
 
 export default function App() {
   const [formats, setFormats] = useState<ContentFormatSpec[]>([]);
@@ -17,19 +24,30 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [activeFormatKey, setActiveFormatKey] = useState<string>('linkedin');
   const [recentTopics, setRecentTopics] = useState<string[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [editedPieces, setEditedPieces] = useState<Record<string, string>>({});
+  const [traceData, setTraceData] = useState<any>(null);
+  const [traceError, setTraceError] = useState<string | null>(null);
+  const [traceOpen, setTraceOpen] = useState(false);
 
   // Use ref to track current active job ID in async callbacks
   const activeJobIdRef = useRef<string | null>(null);
   activeJobIdRef.current = activeJobId;
 
+  const refreshHistory = () => {
+    fetchGenerationHistory(20)
+      .then(setHistory)
+      .catch((err) => console.error('Failed to load generation history:', err));
+  };
+
   useEffect(() => {
     fetchFormats()
       .then((data) => setFormats(data))
       .catch((err) => console.error('Failed to load format catalog:', err));
+    refreshHistory();
   }, []);
 
-  const handleGenerate = async (prompt: string, format: string) => {
+  const handleGenerate = async (prompt: string, format: string, includeTrace?: boolean) => {
     // 1. Immediately clear old result & state
     setIsSubmitting(true);
     setError(null);
@@ -37,10 +55,13 @@ export default function App() {
     setActiveJobId(null);
     activeJobIdRef.current = null;
     setEditedPieces({});
+    setTraceData(null);
+    setTraceError(null);
+    setTraceOpen(false);
 
     try {
       // 2. Submit new job request
-      const jobId = await submitGenerateRequest(prompt, format);
+      const jobId = await submitGenerateRequest(prompt, format, Boolean(includeTrace));
       setActiveJobId(jobId);
       activeJobIdRef.current = jobId;
       setActiveFormatKey(format === 'all' ? 'linkedin' : format);
@@ -72,6 +93,7 @@ export default function App() {
               prompt: prev?.prompt || prompt,
               format_id: prev?.format_id || format,
               status: evt.status,
+              generation_mode: prev?.generation_mode,
               progress_steps: updatedSteps,
               bundle: prev?.bundle,
               brief_summary: prev?.brief_summary,
@@ -82,6 +104,7 @@ export default function App() {
 
           if (evt.status === 'completed' || evt.status === 'failed') {
             setIsSubmitting(false);
+            refreshHistory();
             fetchJobStatus(jobId).then((finalJob) => {
               // Confirm job ID matches active request before updating state
               if (finalJob.job_id === activeJobIdRef.current) {
@@ -102,12 +125,48 @@ export default function App() {
     }
   };
 
+  const handleSelectHistory = (jobId: string) => {
+    setError(null);
+    setTraceData(null);
+    setTraceError(null);
+    setTraceOpen(false);
+    setEditedPieces({});
+    setIsSubmitting(false);
+    fetchJobStatus(jobId)
+      .then((job) => {
+        if (!job) return;
+        setActiveJobId(job.job_id);
+        activeJobIdRef.current = job.job_id;
+        setJobState(job);
+        setActiveFormatKey(
+          job.format_id === 'all'
+            ? 'linkedin'
+            : Object.keys(job.bundle?.pieces || {})[0] || job.format_id
+        );
+      })
+      .catch((err) => setError(err.message || 'Failed to reopen generation.'));
+  };
+
+  const handleLoadTrace = async () => {
+    if (!activeJobId) return;
+    try {
+      const data = await fetchJobTrace(activeJobId);
+      setTraceData(data.trace || {});
+      setTraceError(null);
+      setTraceOpen(true);
+    } catch (err: any) {
+      setTraceError(err.message || 'Trace unavailable for this job.');
+      setTraceOpen(true);
+    }
+  };
+
   const handleNewContent = () => {
     setActiveJobId(null);
     activeJobIdRef.current = null;
     setJobState(null);
     setError(null);
     setIsSubmitting(false);
+    setTraceOpen(false);
   };
 
   const handleSelectRecent = (topic: string) => {
@@ -138,13 +197,17 @@ export default function App() {
     return originalPiece;
   }, [jobState, activeJobId, activeFormatKey, editedPieces]);
 
+  const canShowTrace = Boolean(jobState?.include_trace) && Boolean(jobState) && (jobState?.status === 'completed' || jobState?.status === 'failed');
+
   return (
     <div className="flex h-screen bg-[#0E0F12] text-gray-100 antialiased font-sans overflow-hidden">
       {/* Collapsible Left Sidebar */}
       <Sidebar
         recentTopics={recentTopics}
+        history={history}
         onNewContent={handleNewContent}
         onSelectRecent={handleSelectRecent}
+        onSelectHistory={handleSelectHistory}
       />
 
       {/* Main Content Area */}
@@ -160,8 +223,27 @@ export default function App() {
                 ? 'Synthesizing research & writing...'
                 : jobState?.status === 'completed'
                 ? 'Generation Complete'
+                : jobState?.status === 'failed'
+                ? 'Generation Failed'
                 : 'Ready'}
             </span>
+            {jobState?.generation_mode && (
+              <span
+                className={`text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border ${
+                  jobState.generation_mode === 'gemini'
+                    ? 'text-emerald-300 bg-emerald-950/40 border-emerald-800/50'
+                    : jobState.generation_mode === 'fallback'
+                    ? 'text-amber-300 bg-amber-950/40 border-amber-800/50'
+                    : 'text-gray-400 bg-gray-900/40 border-gray-700/50'
+                }`}
+              >
+                {jobState.generation_mode === 'gemini'
+                  ? 'Gemini'
+                  : jobState.generation_mode === 'fallback'
+                  ? 'Fallback engine'
+                  : 'No LLM'}
+              </span>
+            )}
           </div>
 
           {jobState?.bundle && jobState.job_id === activeJobId && (
@@ -218,17 +300,102 @@ export default function App() {
                 <ContentRenderer
                   piece={currentPiece}
                   onSaveEdit={(newBody) => handleEditSave(activeFormatKey, newBody)}
-                  onRegenerate={() => handleGenerate(jobState.prompt, activeFormatKey)}
+                  onRegenerate={() => handleGenerate(jobState.prompt, activeFormatKey, jobState.include_trace)}
                 />
               ) : (
                 <div className="p-8 text-center text-gray-400">No content piece available for this format.</div>
               )}
 
-              {/* Expandable Research & Quality Audit Transparency */}
+              {/* Execution Trace (opt-in) */}
+              {canShowTrace && (
+                <div className="bg-[#14161E] border border-gray-800 rounded-xl overflow-hidden">
+                  <button
+                    onClick={() => {
+                      if (!traceOpen && !traceData) {
+                        handleLoadTrace();
+                      } else {
+                        setTraceOpen(!traceOpen);
+                      }
+                    }}
+                    className="w-full px-6 py-3 flex items-center justify-between text-left hover:bg-gray-900/40 transition"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-7 h-7 rounded-lg bg-purple-950/60 border border-purple-800/40 flex items-center justify-center">
+                        <Activity className="w-4 h-4 text-purple-400" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-200">LLM Execution Trace</h4>
+                        <p className="text-xs text-gray-400">
+                          Real Gemini call log for this job — enable with the trace toggle in the composer
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {traceData?.total_calls !== undefined && (
+                        <span className="text-xs text-gray-400">
+                          {traceData.total_calls} call{traceData.total_calls === 1 ? '' : 's'} ·{' '}
+                          {traceData.successes} ok · {traceData.failures} failed
+                        </span>
+                      )}
+                      {traceOpen ? (
+                        <span className="text-gray-400">Hide ▴</span>
+                      ) : (
+                        <span className="text-gray-400">Show ▾</span>
+                      )}
+                    </div>
+                  </button>
+
+                  {traceOpen && (
+                    <div className="px-6 pb-5 pt-2 border-t border-gray-800/80 text-xs space-y-3">
+                      {traceError ? (
+                        <p className="text-amber-300">{traceError}</p>
+                      ) : traceData?.entries?.length > 0 ? (
+                        <>
+                          <p className="text-gray-500">
+                            Total duration: {traceData.total_duration_ms?.toFixed?.(1) || traceData.total_duration_ms}ms
+                          </p>
+                          <div className="space-y-1">
+                            {traceData.entries.map((entry: any, idx: number) => (
+                              <div
+                                key={idx}
+                                className={`flex items-center gap-3 px-3 py-1.5 rounded-md border ${
+                                  entry.status === 'success'
+                                    ? 'bg-emerald-950/20 border-emerald-900/30'
+                                    : 'bg-red-950/20 border-red-900/30'
+                                }`}
+                              >
+                                <span className="text-[10px] font-mono text-gray-500 w-7">{idx + 1}.</span>
+                                <span className="text-gray-300 w-40 truncate">{entry.stage}</span>
+                                <span className="text-gray-400 w-40 truncate">{entry.agent}</span>
+                                <span
+                                  className={`font-mono text-[10px] uppercase ${
+                                    entry.status === 'success' ? 'text-emerald-400' : 'text-red-400'
+                                  }`}
+                                >
+                                  {entry.status}
+                                </span>
+                                <span className="text-gray-500 font-mono ml-auto">
+                                  {entry.duration_ms?.toFixed?.(0) ?? entry.duration_ms}ms
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-gray-500">No LLM calls were recorded for this run (offline/fallback mode).</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Expandable Research Intelligence & Execution Transparency */}
               <ResearchTransparency
                 strategy={jobState.bundle.source_strategy}
                 briefSummary={jobState.brief_summary}
                 qualityReport={currentPiece?.quality_report}
+                generationMode={currentPiece?.generation_mode}
+                revisionCount={currentPiece?.revision_count}
               />
             </div>
           )}

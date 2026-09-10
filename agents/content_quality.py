@@ -24,6 +24,8 @@ CRITICAL GROUNDING PRINCIPLES:
 class ContentQualityEngine:
     """Evaluates generated content across Research Fidelity, Content Quality, Voice Alignment, and Platform Fit."""
 
+    last_quality_method: Optional[str] = None
+
     def __init__(
         self,
         llm_client: Optional[GeminiClient] = None,
@@ -45,6 +47,7 @@ class ContentQualityEngine:
         voice: Optional[VoiceProfile] = None,
     ) -> ContentQualityReport:
         """Audits a draft and returns a comprehensive ContentQualityReport."""
+        self.last_quality_method = "rules_only"
         target_voice = voice or VoiceProfile()
         issues: List[ContentQualityIssue] = []
         strengths: List[str] = []
@@ -56,6 +59,8 @@ class ContentQualityEngine:
         # 2. LLM Semantic Quality Evaluation (if LLM available)
         if self.use_llm and self.llm_client is not None:
             llm_issues, llm_strengths = self._evaluate_via_llm(draft, brief, strategy, outline, target_voice)
+            if llm_issues or llm_strengths:
+                self.last_quality_method = "gemini_rules"
             issues.extend(llm_issues)
             strengths.extend(llm_strengths)
 
@@ -391,7 +396,76 @@ class ContentQualityEngine:
                     )
                 )
 
+        # M. Raw Prompt Phrase Leaks & Template Filler Checks
+        filler_patterns = [
+            r"understanding the core shift in",
+            r"understanding the core operational shift",
+            r"key strategic principles behind",
+            r"primary evidence supports core structural mechanisms",
+            r"functional workflows associated with",
+            r"success comes down to focusing on core principles",
+            r"real-world outcomes for .* depend on specific operational conditions",
+            r"grounded research reveals that .* when examining",
+            r"implementation outcomes for .* depend on specific operational conditions",
+        ]
+        for pat in filler_patterns:
+            matches = re.findall(pat, text, re.IGNORECASE)
+            if matches:
+                issues.append(
+                    ContentQualityIssue(
+                        issue_id=f"iss-filler-{hash(pat) & 0xffff:04x}",
+                        category="content_quality",
+                        sub_category="template_filler",
+                        severity="high",
+                        description=f"Draft contains generic template filler phrase matching pattern '{pat}'.",
+                        affected_text=matches[0][:60],
+                        suggested_fix="Replace generic template sentence with specific semantic insights.",
+                    )
+                )
+
+        # Raw prompt leak inside title check
+        title = draft.title or ""
+        if title:
+            leak_words = ["sucks", "is shady", "is evil", "is secretly evil"]
+            for lw in leak_words:
+                if lw in title.lower() and ("strategic principles" in title.lower() or "perspectives" in title.lower()):
+                    issues.append(
+                        ContentQualityIssue(
+                            issue_id=f"iss-title-leak-{hash(lw) & 0xffff:04x}",
+                            category="content_quality",
+                            sub_category="raw_prompt_leak",
+                            severity="high",
+                            description=f"Draft title interpolates raw prompt predicate ('{lw}') into generic title template.",
+                            affected_text=title,
+                            suggested_fix="Format title cleanly using extracted subject entity.",
+                        )
+                    )
+
+        # N. X Thread Numbering Check
+        if strategy.platform.lower() in ("x_thread", "twitter", "x"):
+            posts = [p.strip() for p in text.split("\n\n") if p.strip()]
+            numbers = []
+            for p in posts:
+                m = re.match(r"^(\d+)[\/\.]", p)
+                if m:
+                    numbers.append(int(m.group(1)))
+            if numbers:
+                expected = list(range(1, len(numbers) + 1))
+                if numbers != expected:
+                    issues.append(
+                        ContentQualityIssue(
+                            issue_id="iss-x-num-dup",
+                            category="platform_fit",
+                            sub_category="x_thread_numbering",
+                            severity="high",
+                            description=f"X Thread posts contain non-sequential or duplicate numbers: {numbers}",
+                            affected_text=f"Post numbers: {numbers}",
+                            suggested_fix="Renumber thread sequentially starting from 1/.",
+                        )
+                    )
+
         return issues
+
 
     def _evaluate_via_llm(
         self,
@@ -411,12 +485,16 @@ class ContentQualityEngine:
             f"Draft Body:\n{draft.body_text}\n\n"
             f"Research Safe Claims: {[c.claim_text for c in brief.claim_map.safe_claims]}\n"
             f"Research Qualified Claims: {[{'claim': c.claim_text, 'caveat': c.required_attribution_or_caveat} for c in brief.claim_map.qualified_claims]}\n"
-            f"Unsupported Claims (BANNED): {[c.claim_text for c in brief.claim_map.unsupported_claims]}\n\n"
+            f"Unsupported Claims (frame these as OPINION/commentary with attribution; flag ONLY if stated as unsupported fact): {[c.claim_text for c in brief.claim_map.unsupported_claims]}\n\n"
             f"Content Strategy Platform: {strategy.platform}\n"
             f"Content Strategy Hook: {strategy.hook_direction}\n"
+            f"Selected Angle: {strategy.selected_angle.angle_title if strategy.selected_angle else 'None'}\n"
+            f"Content Landscape Differentiation: {brief.content_landscape.recommended_differentiation if brief.content_landscape else 'None'}\n"
             f"Voice Avoided Phrases: {voice.avoided_phrases}\n\n"
             "Audit the draft for Research Fidelity, Content Quality, Voice Alignment, and Platform Fit. "
             "IMPORTANT: Do NOT flag harmless simplifications as research errors. "
+            "IMPORTANT: Do NOT penalize bold, opinion-led, angle-driven writing that fairly engages counterpoints and stays within claim boundaries. "
+            "Penalize the draft ONLY if it states unsupported claims as verifiable fact without any framing."
             "Output JSON:\n"
             "{\"issues\": [{\"issue_id\": \"...\", \"category\": \"research_fidelity|content_quality|voice_alignment|platform_fit\", \"sub_category\": \"...\", \"severity\": \"low|medium|high\", \"description\": \"...\", \"affected_text\": \"...\", \"suggested_fix\": \"...\"}], "
             "\"strengths\": [\"...\"]}"
@@ -427,6 +505,7 @@ class ContentQualityEngine:
                 prompt=prompt,
                 system_instruction=QUALITY_ENGINE_SYSTEM_PROMPT,
                 temperature=0.1,
+                stage_label="ContentQuality",
             )
             data = json.loads(raw_json)
             issues = [ContentQualityIssue.model_validate(i) for i in data.get("issues", [])]

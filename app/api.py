@@ -34,6 +34,7 @@ class GenerateRequest(BaseModel):
     format: str = Field(default="linkedin", description="Target format ID matching FORMAT_CATALOG or 'all'")
     brand_profile: Optional[Dict] = Field(default=None, description="Optional custom BrandProfile")
     voice_profile: Optional[Dict] = Field(default=None, description="Optional custom VoiceProfile")
+    include_trace: bool = Field(default=False, description="Capture a per-job LLM execution trace (opt-in)")
 
 
 class GenerateResponse(BaseModel):
@@ -90,7 +91,7 @@ async def generate_content(req: GenerateRequest, background_tasks: BackgroundTas
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid voice_profile: {str(e)}")
 
-    job = orchestrator.create_job(prompt=req.prompt, format_id=fmt, brand=brand, voice=voice)
+    job = orchestrator.create_job(prompt=req.prompt, format_id=fmt, brand=brand, voice=voice, include_trace=req.include_trace)
 
     # Launch pipeline execution as background task
     background_tasks.add_task(orchestrator.execute_job, job.job_id, brand, voice)
@@ -109,6 +110,45 @@ def get_job_status(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail=f"Generation job '{job_id}' not found.")
     return job.model_dump()
+
+
+@app.get("/api/generate/{job_id}/trace")
+def get_job_trace(job_id: str):
+    """Returns the captured LLM execution trace for a job (only if include_trace was requested)."""
+    job = orchestrator.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Generation job '{job_id}' not found.")
+    if not job.include_trace:
+        raise HTTPException(status_code=409, detail="This job was created without include_trace. Resubmit with include_trace=true.")
+    if job.status not in ("completed", "failed"):
+        raise HTTPException(status_code=409, detail="Job has not finished yet. Trace is unavailable until completion.")
+    return {
+        "job_id": job.job_id,
+        "status": job.status,
+        "trace": job.trace_snapshot or {"total_calls": 0, "successes": 0, "failures": 0, "entries": []},
+    }
+
+
+@app.get("/api/history")
+def get_generation_history(limit: int = Query(default=20, ge=1, le=100)):
+    """Lists recent generation jobs (id, prompt, format, status, mode, timestamps) for the UI history panel."""
+    jobs = sorted(orchestrator.jobs.values(), key=lambda j: j.created_at, reverse=True)[:limit]
+    return {
+        "history": [
+            {
+                "job_id": j.job_id,
+                "prompt": j.prompt,
+                "format_id": j.format_id,
+                "status": j.status,
+                "generation_mode": j.generation_mode,
+                "error_message": j.error_message,
+                "created_at": j.created_at,
+                "updated_at": j.updated_at,
+                "has_result": j.bundle is not None,
+            }
+            for j in jobs
+        ]
+    }
 
 
 @app.get("/api/generate/stream/{job_id}")

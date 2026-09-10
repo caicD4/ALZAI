@@ -1,5 +1,7 @@
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, Field
+
+from core.request_intent import RequestIntent
 
 
 class ResearchQuestion(BaseModel):
@@ -55,6 +57,9 @@ class ResearchPlan(BaseModel):
     """Structured plan for guiding the research process."""
 
     topic: str = Field(..., description="Original user request or topic")
+    request_intent: Optional[RequestIntent] = Field(
+        default=None, description="Parsed semantic request intent guiding this plan"
+    )
     goals: List[str] = Field(..., description="Key goals of the research plan")
     questions: List[ResearchQuestion] = Field(
         ..., description="List of structured research questions to investigate"
@@ -81,3 +86,4 @@ class ResearchPlan(BaseModel):
         le=10,
         description="Bounded maximum number of research iterations allowed",
     )
+

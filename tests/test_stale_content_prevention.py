@@ -24,8 +24,6 @@ def create_mock_bundle(topic: str, format_id: str = "linkedin") -> ContentBundle
 
     mock_claim_map = ClaimMap(
         safe_claims=[ClaimMapEntry(claim_text=f"Established fact about {topic}", category="safe", reasoning="Reasoning")],
-        user_premise_verdict="supported",
-        user_premise_explanation=f"Explanation for {topic}"
     )
 
     mock_strategy = ContentStrategy(

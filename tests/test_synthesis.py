@@ -1,7 +1,9 @@
 import pytest
+from unittest.mock import MagicMock, patch
 from agents.synthesizer import ResearchSynthesizer
 from core.evidence import EvidenceItem, FetchSnapshot
 from core.research_plan import ResearchPlan, ResearchQuestion
+from core.request_intent import RequestIntent
 from core.synthesis import (
     ClaimMap,
     ContentAngle,
@@ -133,8 +135,8 @@ def test_cdc_autism_prevalence_excluded_from_iq_topic(iq_plan):
     assert "cdc" not in brief_text
 
 
-# 7 & 16. Unsupported user premise is not blindly accepted & ClaimMap categorizes safe vs qualified vs unsupported claims
-def test_claim_map_categorization_and_user_premise_evaluation(iq_plan):
+# 7 & 16. ClaimMap categorizes safe vs qualified vs unsupported claims using actual insight types
+def test_claim_map_categorization_and_content_gaps(iq_plan):
     insights = [
         EvidenceItem(
             evidence_id="ev-1",
@@ -144,7 +146,26 @@ def test_claim_map_categorization_and_user_premise_evaluation(iq_plan):
             claim_summary="Relational training improves trained task performance.",
             insight_type="research_finding",
             source_role="evidence",
-        )
+        ),
+        EvidenceItem(
+            evidence_id="ev-2",
+            fetch_id="fetch-2",
+            locator="span:0-100",
+            verbatim_quote="According to Dr. Smith, relational training has broad cognitive benefits.",
+            claim_summary="Expert claims broad cognitive benefits of relational training.",
+            insight_type="expert_claim",
+            source_role="expert_perspective",
+            attribution="Dr. Smith",
+        ),
+        EvidenceItem(
+            evidence_id="ev-3",
+            fetch_id="fetch-3",
+            locator="span:0-100",
+            verbatim_quote="Replication studies found no significant far-transfer improvements.",
+            claim_summary="Replication found no far-transfer improvements.",
+            insight_type="limitation",
+            source_role="evidence",
+        ),
     ]
 
     synthesizer = ResearchSynthesizer(use_llm=False)
@@ -152,13 +173,17 @@ def test_claim_map_categorization_and_user_premise_evaluation(iq_plan):
 
     claim_map = brief.claim_map
     assert isinstance(claim_map, ClaimMap)
-    assert len(claim_map.safe_claims) >= 1
-    assert len(claim_map.qualified_claims) >= 1
-    assert len(claim_map.unsupported_claims) >= 1
+    assert len(claim_map.safe_claims) >= 1, "Safe claims should be derived from research_finding insights"
+    assert len(claim_map.qualified_claims) >= 1, "Qualified claims should be derived from expert_claim insights"
+    assert len(claim_map.content_gaps) >= 1, "Content gaps should document thin/contested evidence"
+    for claim in claim_map.unsupported_claims:
+        assert claim.category == "unsupported"
 
-    # User premise ("IQ can actually be increased...") must be evaluated as qualified/unsupported rather than blindly accepted
-    assert claim_map.user_premise_verdict in ("qualified", "unsupported")
-    assert len(claim_map.user_premise_explanation) > 20
+    # All claims must reference actual insight IDs, not be fabricated
+    for sc in claim_map.safe_claims:
+        assert len(sc.supporting_insight_ids) > 0, f"Safe claim must cite evidence: {sc.claim_text}"
+    for qc in claim_map.qualified_claims:
+        assert len(qc.supporting_insight_ids) > 0, f"Qualified claim must cite evidence: {qc.claim_text}"
 
 
 # 11, 14, 15. Useful mechanisms become findings, research gaps are identified, and content angles are grounded

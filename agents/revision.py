@@ -16,7 +16,7 @@ REVISION RULES:
 2. EPISTEMIC ACCURACY:
    - Downgrade causal strengthening (e.g., change "scientists proved" to "studies observed").
    - Restore missing source attributions or numerical figures.
-   - Remove unsupported claims.
+   - REFRAME unsupported claims (state-as-fact ⇒ mark as OPINION/commentary or attribute as allegation). Do NOT expand a bold angle into sterile hedging or delete the author's take — keep it opinionated while honest.
 3. QUALITY & STYLE FIXES:
    - Replace generic AI clichés or banned phrases with direct, non-cliché statements.
    - Fix weak hooks, repetition, or poor transitions as suggested.
@@ -150,9 +150,13 @@ class TargetedRevisionWorker:
             f"Original Draft Body:\n{draft.body_text}\n\n"
             f"Identified Issues to Fix:\n{json.dumps(issue_list, indent=2)}\n\n"
             f"Permitted Safe Claims: {[c.claim_text for c in brief.claim_map.safe_claims]}\n"
-            f"Required Caveats: {[{'claim': c.claim_text, 'caveat': c.required_attribution_or_caveat} for c in brief.claim_map.qualified_claims]}\n\n"
-            "Apply ONLY targeted edits for the listed issues. Keep unaffected sentences intact. "
-            "Output JSON: {\"body_text\": \"...\"}"
+            f"Required Caveats: {[{'claim': c.claim_text, 'caveat': c.required_attribution_or_caveat} for c in brief.claim_map.qualified_claims]}\n"
+            f"Unsupported Claims (reframe as OPINION/commentary — never present as verified fact): {[c.claim_text for c in brief.claim_map.unsupported_claims]}\n\n"
+            f"Selected Angle: {strategy.selected_angle.angle_title if strategy.selected_angle else 'None'}\n"
+            f"Content Landscape Differentiation: {brief.content_landscape.recommended_differentiation if brief.content_landscape else 'None'}\n"
+            f"Content Gaps: {brief.claim_map.content_gaps or 'None'}\n\n"
+            "Apply ONLY targeted edits for the listed issues. Keep unaffected sentences intact and preserve the author's bold voice. "
+            "Output JSON: {\"body_text\": \"...\", \"title\": \"...\"}"
         )
 
         try:
@@ -160,6 +164,7 @@ class TargetedRevisionWorker:
                 prompt=prompt,
                 system_instruction=REVISION_SYSTEM_PROMPT,
                 temperature=0.2,
+                stage_label="Revision",
             )
             data = json.loads(raw_json)
             new_body = data.get("body_text", draft.body_text)
@@ -202,13 +207,13 @@ class TargetedRevisionWorker:
             elif issue.sub_category == "attribution_loss" and issue.suggested_fix:
                 if "(" not in text and "According to" not in text:
                     text = text.replace(
-                        "relational skills can enhance IQ",
-                        "relational skills can enhance IQ (according to research published by Dr. Sarah Cassidy and Dr. Bryan Roche)",
+                        "can enhance outcome",
+                        "can enhance outcome (according to published research)",
                     )
             elif issue.sub_category == "weak_hook":
                 sentences = text.split("\n\n")
                 if sentences and len(sentences[0]) < 20:
-                    sentences[0] = f"Understanding the core operational shift in {draft.topic}."
+                    sentences[0] = f"Grounded research reveals key insights regarding {draft.topic}."
                     text = "\n\n".join(sentences)
             elif issue.sub_category == "malformed_punctuation":
                 text = re.sub(r"([a-zA-Z0-9])\.\s*—", r"\1—", text)
@@ -275,6 +280,7 @@ class TargetedRevisionWorker:
                 prompt=prompt,
                 system_instruction=REVISION_SYSTEM_PROMPT,
                 temperature=0.2,
+                stage_label="Revision",
             )
             data = json.loads(raw_json)
             new_body = data.get("body_text", draft.body_text)

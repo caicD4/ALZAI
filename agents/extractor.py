@@ -242,11 +242,23 @@ class EvidenceExtractor:
         use_llm: bool = True,
         chunker: Optional[DocumentChunker] = None,
         min_document_relevance: float = 0.05,
+        max_candidates_per_question: int = 30,
+        max_verified_per_question: int = 12,
     ) -> None:
         self.use_llm = use_llm
-        self.llm_client = llm_client if use_llm else None
+        if use_llm:
+            self.llm_client = llm_client or GeminiClient()
+        else:
+            self.llm_client = None
         self.chunker = chunker or DocumentChunker()
         self.min_document_relevance = min_document_relevance
+        self.max_candidates_per_question = max_candidates_per_question
+        self.max_verified_per_question = max_verified_per_question
+        # Circuit breaker: once the LLM has failed repeatedly within one
+        # extraction pass, skip it entirely rather than hammering the API on
+        # every chunk of a large document (avoids stall + rate-limit storms).
+        self._llm_disabled = False
+        self._consecutive_llm_failures = 0
 
     def extract_evidence(
         self,
@@ -259,6 +271,12 @@ class EvidenceExtractor:
 
         if not question or not question.question.strip():
             return []
+
+        # NOTE: The LLM circuit breaker is intentionally NOT reset here. It is
+        # sticky for the lifetime of this extractor instance so that a rate-limited
+        # or failing API does not get hammered again for every (question, snapshot)
+        # pair within a single pipeline run. `_consecutive_llm_failures` resets on
+        # the next successful LLM call.
 
         # PRE-FILTER GATE: Evaluate snapshot-level relevance before extracting
         is_relevant, doc_score = self.is_snapshot_relevant(snapshot, question, threshold=self.min_document_relevance)
@@ -279,13 +297,21 @@ class EvidenceExtractor:
         candidate_items: List[RawCandidateEvidence] = []
 
         for chunk in chunks:
-            if self.use_llm and self.llm_client is not None:
+            if self.use_llm and self.llm_client is not None and not self._llm_disabled:
                 extracted = self._extract_via_llm(chunk.text, question)
             else:
                 extracted = self._extract_fallback(chunk.text, question)
 
             for cand in extracted:
                 candidate_items.append(cand)
+
+        # Step 1b: Constrain candidate volume so later synthesis stays sane.
+        # Prefer quantitative and attributed passages over filler-ish verbatim hunks.
+        candidate_items = sorted(
+            candidate_items,
+            key=lambda c: (len(c.numbers), int(bool(c.attribution))),
+            reverse=True,
+        )[: self.max_candidates_per_question]
 
         # Step 2: Filter, Deduplicate, and Verify Candidates
         verified_evidence_pool: List[EvidenceItem] = []
@@ -382,7 +408,8 @@ class EvidenceExtractor:
 
             verified_evidence_pool.append(evidence_item)
 
-        return verified_evidence_pool
+        # Step 3: Cap verified volume to the highest-signal subset.
+        return verified_evidence_pool[: self.max_verified_per_question]
 
     @classmethod
     def is_snapshot_relevant(
@@ -435,12 +462,21 @@ class EvidenceExtractor:
                 prompt=prompt,
                 system_instruction=EXTRACTOR_SYSTEM_PROMPT,
                 temperature=0.1,
+                stage_label="EvidenceExtractor",
             )
             data = json.loads(raw_json)
             payload = ExtractedCandidatesPayload.model_validate(data)
+            self._consecutive_llm_failures = 0
             return payload.items
         except Exception:
-            return []
+            # Degrade gracefully: never return [] when the LLM is unavailable/rate-limited.
+            # The deterministic extractor produces grounded, verbatim, non-fabricated candidates,
+            # so losing LLM evidence here must not silently starve the rest of the pipeline.
+            self._consecutive_llm_failures += 1
+            if self._consecutive_llm_failures >= 2:
+                # Circuit breaker: stop attempting the LLM for the rest of this pass.
+                self._llm_disabled = True
+            return self._extract_fallback(chunk_text, question)
 
     def _extract_fallback(
         self,
@@ -459,6 +495,30 @@ class EvidenceExtractor:
             if self._is_boilerplate(sentence) or not self._is_substantive(sentence):
                 continue
 
+            # Reject layout/metadata fragments (headings, author stubs, index lines,
+            # arXiv bib artifacts) that do not read as executable sentences.
+            if not sentence.endswith((".", "!", "?")):
+                continue
+            if "\u2020" in sentence or "\u00f6" in sentence:
+                continue
+            s_stripped = sentence.lstrip().lower()
+            if s_stripped.startswith(
+                ("abstract:", "index terms:", "keywords:", "doi:", "arxiv:",
+                 "e-print:", "copyright", "https://", "note that in")
+            ):
+                continue
+            blen = len(sentence)
+            if blen < 60 or blen > 700:
+                continue
+            # Reject mid-sentence fragments that start lowercase; real sentences
+            # begin with a capital letter (or a quote followed by one).
+            first_char = next(
+                (ch for ch in sentence.strip() if not ch.isspace() and ch not in '"\''),
+                "",
+            )
+            if not first_char or not first_char.isupper():
+                continue
+
             s_lower = sentence.lower()
             term_matches = [w for w in question_terms if (w.rstrip("s") if len(w) > 3 else w) in s_lower or w in s_lower]
             has_number = bool(re.search(r"\d+(?:\.\d+)?%|\$\d+|\b\d+\b", sentence))
@@ -471,17 +531,34 @@ class EvidenceExtractor:
                     numbers.append(RawNumberFact(value=stat_match.group(1).strip()))
 
                 attribution = None
-                attr_match = re.search(r"(?:according to|reported by|stated by|found by)\s+([A-Z][\w\s]+)", sentence, re.IGNORECASE)
+                attr_match = re.search(
+                    r"(?:according to|reported by|stated by|found by)\s+"
+                    r"([A-Z][A-Za-z0-9&'.\-\s:]{0,40}?)(?=\s*[,;:]|\s+\d|\s*$)",
+                    sentence,
+                    re.IGNORECASE,
+                )
                 if attr_match:
-                    attribution = attr_match.group(1).strip()
+                    attribution = attr_match.group(1).strip().rstrip(":,; ")
 
                 insight_t = "statistic" if has_number else ("expert_claim" if attribution else "research_finding")
                 phrasing = f"{attribution} states: '{sentence}'" if attribution else sentence
 
+                # Clean inline citation tokens (e.g. "[ 283 ]", "[48]") from the
+                # summary so downstream findings read as prose, not bib noise.
+                # The verbatim_quote is untouched and remains verifiable.
+                clean_summary = re.sub(r"\[\s*\d+(?:\s*,?\s*\d+)*\s*\]", "", sentence)
+                clean_summary = re.sub(r"\s+", " ", clean_summary).strip()
+                claim_summary = clean_summary[:150]
+                if len(clean_summary) > 150:
+                    last_space = claim_summary.rfind(" ")
+                    if last_space > 80:
+                        claim_summary = claim_summary[:last_space]
+                    claim_summary += "..."
+
                 candidates.append(
                     RawCandidateEvidence(
                         verbatim_quote=sentence,
-                        claim_summary=f"Key finding regarding {question.question[:40]}",
+                        claim_summary=claim_summary,
                         relevance_explanation=f"Matches research question concepts: {', '.join(term_matches[:3])}",
                         insight_type=insight_t,
                         evidence_type=insight_t,
@@ -493,7 +570,9 @@ class EvidenceExtractor:
                     )
                 )
 
-        return candidates[:8]
+        # Prefer quantitative/attributed sentences, cap per chunk to keep volume sane.
+        candidates.sort(key=lambda c: (len(c.numbers), int(bool(c.attribution))), reverse=True)
+        return candidates[:4]
 
     @staticmethod
     def _is_boilerplate(text: str) -> bool:
