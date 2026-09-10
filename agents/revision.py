@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any, List, Optional, Union
 
 from agents.verifier import ContentVerifier
@@ -208,7 +209,25 @@ class TargetedRevisionWorker:
                 sentences = text.split("\n\n")
                 if sentences:
                     sentences[0] = "Most brain training apps don't increase IQ. They simply make you faster at playing their specific puzzle games."
-                    text = "\n\n".join(sentences)
+            elif issue.sub_category == "malformed_punctuation":
+                text = re.sub(r"([a-zA-Z0-9])\.\s*—", r"\1—", text)
+                text = re.sub(r"([a-zA-Z0-9])([,!?:;])—", r"\1—", text)
+                text = re.sub(r"—([,!?:;.])", r"—", text)
+                text = re.sub(r"——|—\s+—|---|--\s+--", "—", text)
+                text = re.sub(r"(?<!\.)\.\.(?!\.)|,,|\?\?|!!|;;", lambda m: m.group(0)[0], text)
+            elif issue.sub_category == "repeated_words" and affected:
+                words_match = affected.split()
+                if len(words_match) == 2:
+                    text = text.replace(affected, words_match[0])
+            elif issue.sub_category == "broken_sentence":
+                paragraphs = text.split("\n\n")
+                new_paras = []
+                for p in paragraphs:
+                    p_clean = p.strip()
+                    if p_clean and not re.search(r'[.!?"\')]$', p_clean):
+                        p_clean += "."
+                    new_paras.append(p_clean)
+                text = "\n\n".join(new_paras)
 
         clean_text = "\n\n".join([p.strip() for p in text.split("\n\n") if p.strip()])
 

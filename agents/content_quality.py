@@ -66,9 +66,9 @@ class ContentQualityEngine:
         fidelity_score, quality_score, voice_score, platform_score = self._compute_scores(issues, draft, target_voice, strategy)
         overall_score = round((fidelity_score * 0.35) + (quality_score * 0.25) + (voice_score * 0.20) + (platform_score * 0.20), 2)
 
-        # Status: Passed if zero high-severity research_fidelity issues and overall_score >= 0.70
-        has_high_fidelity_issue = any(i.category == "research_fidelity" and i.severity == "high" for i in issues)
-        overall_status = "passed" if not has_high_fidelity_issue and overall_score >= 0.70 else "needs_revision"
+        # Status: Passed ONLY if zero high-severity issues across ALL categories and overall_score >= 0.85
+        has_high_issue = any(i.severity == "high" for i in issues)
+        overall_status = "passed" if not has_high_issue and overall_score >= 0.85 else "needs_revision"
 
         if not strengths:
             strengths = [
@@ -224,6 +224,173 @@ class ContentQualityEngine:
                 )
             )
 
+        # G. Malformed Punctuation & Em-Dash Checks (Content Quality Issue)
+        # e.g., 'tasks.—', 'real.—', '?—', ',—', '!—'
+        malformed_punct = re.findall(r"[.!?,;:]—|—[.!?,;:]", text)
+        if malformed_punct:
+            issues.append(
+                ContentQualityIssue(
+                    issue_id=f"iss-punct-{hash(malformed_punct[0]) & 0xffff:04x}",
+                    category="content_quality",
+                    sub_category="malformed_punctuation",
+                    severity="high",
+                    description=f"Draft contains malformed punctuation attached to em-dash: '{malformed_punct[0]}'.",
+                    affected_text=malformed_punct[0],
+                    suggested_fix="Format em-dash clauses cleanly without punctuation attached to em-dashes.",
+                )
+            )
+
+        # Double/Triple em-dashes or malformed dash syntax
+        malformed_dashes = re.findall(r"——|—\s+—|---|--\s+--", text)
+        if malformed_dashes:
+            issues.append(
+                ContentQualityIssue(
+                    issue_id=f"iss-dash-{hash(malformed_dashes[0]) & 0xffff:04x}",
+                    category="content_quality",
+                    sub_category="malformed_punctuation",
+                    severity="high",
+                    description=f"Draft contains duplicated or malformed dash syntax: '{malformed_dashes[0]}'.",
+                    affected_text=malformed_dashes[0],
+                    suggested_fix="Use single standard em-dash (—) or en-dash without duplication.",
+                )
+            )
+
+        # Duplicated punctuation (.. ,, ?? !! ;;)
+        dup_punct = re.findall(r"(?<!\.)\.\.(?!\.)|,,|\?\?|!!|;;", text)
+        if dup_punct:
+            issues.append(
+                ContentQualityIssue(
+                    issue_id=f"iss-duppunct-{hash(dup_punct[0]) & 0xffff:04x}",
+                    category="content_quality",
+                    sub_category="malformed_punctuation",
+                    severity="high",
+                    description=f"Draft contains duplicated punctuation: '{dup_punct[0]}'.",
+                    affected_text=dup_punct[0],
+                    suggested_fix="Remove duplicate punctuation mark.",
+                )
+            )
+
+        # H. Consecutive Repeated Words (Content Quality Issue)
+        dup_words = re.findall(r"\b([A-Za-z]{2,})\s+\1\b", text)
+        if dup_words:
+            for dw in dup_words:
+                if dw.lower() not in {"very", "really"}:
+                    issues.append(
+                        ContentQualityIssue(
+                            issue_id=f"iss-dupword-{hash(dw) & 0xffff:04x}",
+                            category="content_quality",
+                            sub_category="repeated_words",
+                            severity="high",
+                            description=f"Draft contains repeated consecutive word: '{dw} {dw}'.",
+                            affected_text=f"{dw} {dw}",
+                            suggested_fix=f"Remove duplicate instance of '{dw}'.",
+                        )
+                    )
+
+        # I. Unmatched & Nested Parentheses (Content Quality Issue)
+        if text.count("(") != text.count(")"):
+            issues.append(
+                ContentQualityIssue(
+                    issue_id="iss-unmatched-paren",
+                    category="content_quality",
+                    sub_category="malformed_punctuation",
+                    severity="high",
+                    description="Draft contains unmatched parentheses.",
+                    affected_text="Unmatched '(' or ')'",
+                    suggested_fix="Ensure all opening parentheses have matching closing parentheses.",
+                )
+            )
+
+        nested_paren = re.findall(r"\([^)]*\([^)]*\)", text)
+        if nested_paren:
+            issues.append(
+                ContentQualityIssue(
+                    issue_id=f"iss-nested-paren-{hash(nested_paren[0]) & 0xffff:04x}",
+                    category="content_quality",
+                    sub_category="nested_parentheses",
+                    severity="medium",
+                    description="Draft contains awkward nested parentheses.",
+                    affected_text=nested_paren[0][:50],
+                    suggested_fix="Flatten nested parenthetical structure into clear prose.",
+                )
+            )
+
+        empty_paren = re.findall(r"\(\s*\)", text)
+        if empty_paren:
+            issues.append(
+                ContentQualityIssue(
+                    issue_id="iss-empty-paren",
+                    category="content_quality",
+                    sub_category="malformed_punctuation",
+                    severity="high",
+                    description="Draft contains empty parentheses '()'.",
+                    affected_text="()",
+                    suggested_fix="Remove empty parentheses.",
+                )
+            )
+
+        # J. Paragraph Ending Mid-Thought (Broken Sentence / Fusion)
+        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+        for p in paragraphs:
+            if len(p) > 15 and not re.search(r'[.!?"\')]\s*$', p):
+                issues.append(
+                    ContentQualityIssue(
+                        issue_id=f"iss-frag-{hash(p[:30]) & 0xffff:04x}",
+                        category="content_quality",
+                        sub_category="broken_sentence",
+                        severity="high",
+                        description=f"Paragraph ends abruptly without terminal punctuation: '{p[-30:]}'.",
+                        affected_text=p[-30:],
+                        suggested_fix="Complete paragraph with proper terminal punctuation.",
+                    )
+                )
+
+        # K. Broken Generated Text / Code Artifacts
+        broken_tokens = ["{\"body_text\"", "\"[object Object]\"", "undefined", "NaN"]
+        for bt in broken_tokens:
+            if bt in text:
+                issues.append(
+                    ContentQualityIssue(
+                        issue_id=f"iss-broken-{hash(bt) & 0xffff:04x}",
+                        category="content_quality",
+                        sub_category="broken_sentence",
+                        severity="high",
+                        description=f"Draft contains raw code artifact or broken generation token: '{bt}'.",
+                        affected_text=bt,
+                        suggested_fix="Remove raw code or JSON artifacts from text.",
+                    )
+                )
+
+        # L. Platform Fit Checks
+        if strategy.platform.lower() == "linkedin":
+            words = text.split()
+            if len(words) > 600:
+                issues.append(
+                    ContentQualityIssue(
+                        issue_id="iss-plat-len",
+                        category="platform_fit",
+                        sub_category="platform_length_mismatch",
+                        severity="medium",
+                        description="LinkedIn post exceeds recommended length (>600 words).",
+                        affected_text=f"Word count: {len(words)}",
+                        suggested_fix="Trim content for optimal LinkedIn readability (200-400 words).",
+                    )
+                )
+        elif strategy.platform.lower() in ("article", "blog", "long_form"):
+            words = text.split()
+            if len(words) < 150:
+                issues.append(
+                    ContentQualityIssue(
+                        issue_id="iss-plat-short",
+                        category="platform_fit",
+                        sub_category="platform_length_mismatch",
+                        severity="medium",
+                        description="Long-form article draft is excessively brief (<150 words).",
+                        affected_text=f"Word count: {len(words)}",
+                        suggested_fix="Expand article sections with deeper context and evidence.",
+                    )
+                )
+
         return issues
 
     def _evaluate_via_llm(
@@ -277,9 +444,9 @@ class ContentQualityEngine:
     ) -> tuple[float, float, float, float]:
         """Calculates 4 dimensional scores (0.0 to 1.0) based on issue severity deductions."""
         fidelity_deductions = sum(0.35 if i.severity == "high" else 0.15 for i in issues if i.category == "research_fidelity")
-        quality_deductions = sum(0.30 if i.severity == "high" else 0.15 for i in issues if i.category == "content_quality")
-        voice_deductions = sum(0.30 if i.severity == "high" else 0.15 for i in issues if i.category == "voice_alignment")
-        platform_deductions = sum(0.30 if i.severity == "high" else 0.15 for i in issues if i.category == "platform_fit")
+        quality_deductions = sum(0.35 if i.severity == "high" else 0.15 for i in issues if i.category == "content_quality")
+        voice_deductions = sum(0.35 if i.severity == "high" else 0.15 for i in issues if i.category == "voice_alignment")
+        platform_deductions = sum(0.35 if i.severity == "high" else 0.15 for i in issues if i.category == "platform_fit")
 
         fidelity_score = max(0.0, round(1.0 - fidelity_deductions, 2))
         quality_score = max(0.0, round(1.0 - quality_deductions, 2))

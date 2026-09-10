@@ -138,9 +138,10 @@ class HumanBrandVoiceWriter:
             else "Relational training shows potential gains when using adaptive protocols."
         )
 
+        safe_clean = safe_str.rstrip(".!? ")
         body_paragraphs = [
             f"Most brain training apps don't increase IQ. They simply make you faster at playing their specific puzzle games.",
-            f"Neuroscience confirms that while adult neuroplasticity is real—{safe_str.lower()}—true cognitive expansion requires a fundamentally different architecture.",
+            f"Neuroscience confirms that while adult neuroplasticity is real—and {safe_clean.lower()}—true cognitive expansion requires a fundamentally different architecture.",
             f"That architecture is Relational Frame Theory (RFT).",
             f"{qual_str}",
             f"Crucially, cognitive growth demands continuous adaptive strain. If the difficulty doesn't scale instantly with your performance ceiling, the brain automates the task and learning plateaus.",
