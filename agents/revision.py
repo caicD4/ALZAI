@@ -205,10 +205,11 @@ class TargetedRevisionWorker:
                         "relational skills can enhance IQ",
                         "relational skills can enhance IQ (according to research published by Dr. Sarah Cassidy and Dr. Bryan Roche)",
                     )
-            elif issue.sub_category == "weak_hook" and "Most brain training apps" not in text:
+            elif issue.sub_category == "weak_hook":
                 sentences = text.split("\n\n")
-                if sentences:
-                    sentences[0] = "Most brain training apps don't increase IQ. They simply make you faster at playing their specific puzzle games."
+                if sentences and len(sentences[0]) < 20:
+                    sentences[0] = f"Understanding the core operational shift in {draft.topic}."
+                    text = "\n\n".join(sentences)
             elif issue.sub_category == "malformed_punctuation":
                 text = re.sub(r"([a-zA-Z0-9])\.\s*—", r"\1—", text)
                 text = re.sub(r"([a-zA-Z0-9])([,!?:;])—", r"\1—", text)

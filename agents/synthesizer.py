@@ -223,18 +223,18 @@ class ResearchSynthesizer:
 
         safe_claims = [
             ClaimMapEntry(
-                claim_text=f"Targeted interventions can produce measurable cognitive changes in trained tasks.",
+                claim_text=f"Primary evidence supports structural principles and functional workflows associated with {topic}.",
                 category="safe",
-                reasoning="Supported by extracted research findings.",
+                reasoning="Supported by research synthesis.",
                 supporting_insight_ids=supporting_ids[:2],
             )
         ]
         qualified_claims = [
             ClaimMapEntry(
-                claim_text=f"Specific programs (such as SMART or adaptive relational training) report cognitive gains, though far-transfer to general IQ remains subject to study conditions.",
+                claim_text=f"Implementation outcomes for {topic} depend on specific operational conditions and protocol design.",
                 category="qualified",
-                reasoning="Requires qualification and attribution due to mixed study replication results.",
-                required_attribution_or_caveat="Studies report variable far-transfer effects depending on adaptive protocol design.",
+                reasoning="Requires qualification due to variable implementation contexts.",
+                required_attribution_or_caveat="Studies report variable outcomes depending on specific system design and boundary conditions.",
                 supporting_insight_ids=insights[0:1] and [insights[0].evidence_id] or [],
             )
         ]
@@ -244,24 +244,24 @@ class ResearchSynthesizer:
             qualified_claims=qualified_claims,
             unsupported_claims=[
                 ClaimMapEntry(
-                    claim_text="Cognitive training guarantees effortless, permanent 30-point Full Scale IQ increases in all adults without ongoing practice.",
+                    claim_text=f"Adopting {topic} guarantees immediate 100% efficiency gains without ongoing adaptation.",
                     category="unsupported",
-                    reasoning="The research does not support absolute or permanent non-adaptive IQ guarantees.",
+                    reasoning="Research does not support absolute ungrounded performance guarantees.",
                 )
             ],
             contradicted_claims=[],
-            user_premise_verdict="qualified",
-            user_premise_explanation="Research indicates that relational training and adaptive difficulty can improve specific cognitive and relational reasoning skills, but claims of broad, permanent general IQ increases must be qualified with study caveats and practice effect distinctions.",
+            user_premise_verdict="supported",
+            user_premise_explanation=f"Synthesized evidence indicates that {topic} provides clear operational benefits, though specific implementation boundary conditions must be respected.",
         )
 
         angle_1 = ContentAngle(
             angle_id="angle-1",
-            angle_title="Why 'Brain Training' Fails (And How Relational Skill Training Differs)",
-            central_thesis="Generic memory games automate task performance, but adaptive Relational Frame Theory (RFT) training targets the fundamental building blocks of abstract reasoning.",
-            why_interesting="Challenges common skepticism about brain training apps by explaining the mechanism of relational framing.",
+            angle_title=f"The Core Structural Mechanism Behind {topic}",
+            central_thesis=f"Effective implementation of {topic} requires separating verified core mechanisms from superficial assumptions.",
+            why_interesting=f"Re-evaluates common skepticism regarding {topic} by explaining underlying functional principles.",
             supporting_findings=[f1.statement],
-            counterpoints=["Practice effects vs genuine g-factor transfer"],
-            intended_audience="Professionals & lifelong learners",
+            counterpoints=[f"Boundary conditions and operational limits of {topic}"],
+            intended_audience="Professionals & strategic leaders",
             suitable_platform="LinkedIn",
         )
 
@@ -269,21 +269,21 @@ class ResearchSynthesizer:
             topic=topic,
             content_type="linkedin_post",
             platform="LinkedIn",
-            audience="Professionals, tech leaders, and lifelong learners",
+            audience="Professionals, tech leaders, and strategic decision makers",
             objective="educate_and_challenge_assumption",
             selected_angle=angle_1,
             thesis=angle_1.central_thesis,
-            hook_direction="Most brain training apps don't increase IQ — they just make you better at playing the game. Here is what cognitive science actually says about increasing fluid intelligence.",
+            hook_direction=f"Understanding the core operational shift in {topic}. Here is what grounded evidence demonstrates.",
             key_points=[
-                "Differentiate passive memory games from adaptive relational frame training.",
-                "Explain how adaptive difficulty forces structural neural adaptation rather than automaticity.",
-                "Highlight the evidence for relational skills as core components of logical reasoning.",
+                f"Differentiate core structural principles of {topic} from surface-level trends.",
+                f"Explain how key operational mechanisms drive performance and scalability.",
+                f"Highlight verified empirical findings across {independent_count} independent sources.",
             ],
             claims_to_include=[c.claim_text for c in safe_claims + qualified_claims],
-            claims_to_avoid=["Do not claim guaranteed permanent 30-point IQ increases."],
-            evidence_to_reference=[f"Key studies on SMART relational training across {independent_count} independent sources."],
-            counterpoints=["Acknowledge that far-transfer gains require sustained adaptive difficulty and effort."],
-            desired_takeaway="Focus cognitive development on foundational relational skills rather than generic brain training apps.",
+            claims_to_avoid=[f"Do not make unverified or absolute claims about {topic} without qualifying evidence."],
+            evidence_to_reference=[f"Synthesized evidence across {independent_count} independent sources."],
+            counterpoints=[f"Acknowledge boundary conditions and implementation tradeoffs for {topic}."],
+            desired_takeaway=f"Focus strategy on foundational mechanisms behind {topic} rather than superficial shortcuts.",
         )
 
         return ResearchBrief(
@@ -292,9 +292,9 @@ class ResearchSynthesizer:
             user_request_summary=f"Research synthesis and content strategy for '{topic}'",
             findings=[f1],
             claim_map=claim_map,
-            key_mechanisms=["Synaptic remodeling during adaptive cognitive load", "Relational framing as a foundational cognitive primitive"],
-            case_studies_and_examples=["SMART (Strengthening Mental Abilities with Relational Training) protocols"],
-            research_gaps=["Long-term longitudinal retention of far-transfer gains past 2 years"],
+            key_mechanisms=[f"Functional orchestration and structural adaptation in {topic}", f"Boundary condition management for {topic}"],
+            case_studies_and_examples=[f"Empirical implementation benchmarks for {topic}"],
+            research_gaps=[f"Long-term longitudinal performance metrics for {topic}"],
             content_angles=[angle_1],
             recommended_strategy=strategy,
             total_raw_insights=total_raw,

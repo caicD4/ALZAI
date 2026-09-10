@@ -130,11 +130,11 @@ class ContentOutliner:
             topic=brief.topic,
             platform=strategy.platform,
             hook_direction=strategy.hook_direction,
-            setup_context="Most brain training apps don't raise IQ; they make you good at playing the app. Neuroscience reveals what actually drives fluid intelligence.",
+            setup_context=f"Understanding the core mechanisms and implications of {brief.topic}.",
             main_points=main_points,
-            counterpoints=strategy.counterpoints or ["Far-transfer gains require sustained adaptive effort."],
-            conclusion="True cognitive enhancement requires structured, adaptive relational training rather than casual gaming.",
-            cta="How do you approach cognitive skill building in your daily routine?",
+            counterpoints=strategy.counterpoints or [f"Sustained results require addressing specific boundary conditions for {brief.topic}."],
+            conclusion=f"Effective strategy for {brief.topic} requires grounded evidence and disciplined execution.",
+            cta=f"What are your key observations regarding {brief.topic}?",
             traceable_claim_ids=["safe-1", "qual-1"],
         )
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import Composer from './components/Composer';
 import ProgressTracker from './components/ProgressTracker';
@@ -11,12 +11,17 @@ import { AlertCircle } from 'lucide-react';
 
 export default function App() {
   const [formats, setFormats] = useState<ContentFormatSpec[]>([]);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [jobState, setJobState] = useState<GenerationJob | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeFormatKey, setActiveFormatKey] = useState<string>('linkedin');
   const [recentTopics, setRecentTopics] = useState<string[]>([]);
   const [editedPieces, setEditedPieces] = useState<Record<string, string>>({});
+
+  // Use ref to track current active job ID in async callbacks
+  const activeJobIdRef = useRef<string | null>(null);
+  activeJobIdRef.current = activeJobId;
 
   useEffect(() => {
     fetchFormats()
@@ -25,46 +30,70 @@ export default function App() {
   }, []);
 
   const handleGenerate = async (prompt: string, format: string) => {
+    // 1. Immediately clear old result & state
     setIsSubmitting(true);
     setError(null);
     setJobState(null);
+    setActiveJobId(null);
+    activeJobIdRef.current = null;
     setEditedPieces({});
 
     try {
+      // 2. Submit new job request
       const jobId = await submitGenerateRequest(prompt, format);
+      setActiveJobId(jobId);
+      activeJobIdRef.current = jobId;
       setActiveFormatKey(format === 'all' ? 'linkedin' : format);
 
       if (!recentTopics.includes(prompt)) {
         setRecentTopics((prev) => [prompt, ...prev.slice(0, 9)]);
       }
 
-      // Initial job state pull
+      // Initial job status fetch
       const initialJob = await fetchJobStatus(jobId);
-      setJobState(initialJob);
+      if (initialJob.job_id === activeJobIdRef.current) {
+        setJobState(initialJob);
+      }
 
-      // Subscribe to SSE real-time stream
+      // 3. Subscribe to real-time SSE progress events with strict job ID matching
       subscribeJobProgress(
         jobId,
         (evt) => {
+          // Stale job response protection
+          if (evt.job_id && evt.job_id !== activeJobIdRef.current) {
+            return;
+          }
+
           setJobState((prev) => {
-            if (!prev) return null;
-            const updatedSteps: ProgressStep[] = evt.steps || prev.progress_steps;
+            if (prev && prev.job_id !== evt.job_id) return prev;
+            const updatedSteps: ProgressStep[] = evt.steps || prev?.progress_steps || [];
             return {
-              ...prev,
+              job_id: evt.job_id,
+              prompt: prev?.prompt || prompt,
+              format_id: prev?.format_id || format,
               status: evt.status,
               progress_steps: updatedSteps,
-              error_message: evt.error_message || prev.error_message,
+              bundle: prev?.bundle,
+              brief_summary: prev?.brief_summary,
+              error_message: evt.error_message || prev?.error_message,
+              created_at: prev?.created_at || new Date().toISOString(),
             };
           });
 
           if (evt.status === 'completed' || evt.status === 'failed') {
             setIsSubmitting(false);
-            // Fetch final bundle result
-            fetchJobStatus(jobId).then((finalJob) => setJobState(finalJob));
+            fetchJobStatus(jobId).then((finalJob) => {
+              // Confirm job ID matches active request before updating state
+              if (finalJob.job_id === activeJobIdRef.current) {
+                setJobState(finalJob);
+              }
+            });
           }
         },
         () => {
-          setIsSubmitting(false);
+          if (jobId === activeJobIdRef.current) {
+            setIsSubmitting(false);
+          }
         }
       );
     } catch (err: any) {
@@ -74,6 +103,8 @@ export default function App() {
   };
 
   const handleNewContent = () => {
+    setActiveJobId(null);
+    activeJobIdRef.current = null;
     setJobState(null);
     setError(null);
     setIsSubmitting(false);
@@ -90,9 +121,11 @@ export default function App() {
     }));
   };
 
-  // Determine current piece to display
+  // Determine current piece to display with strict job identity verification
   const currentPiece: ContentPiece | null = React.useMemo(() => {
-    if (!jobState?.bundle?.pieces) return null;
+    if (!jobState || jobState.job_id !== activeJobId) return null;
+    if (!jobState.bundle?.pieces) return null;
+
     const originalPiece = jobState.bundle.pieces[activeFormatKey] || Object.values(jobState.bundle.pieces)[0];
     if (!originalPiece) return null;
 
@@ -103,7 +136,7 @@ export default function App() {
       };
     }
     return originalPiece;
-  }, [jobState, activeFormatKey, editedPieces]);
+  }, [jobState, activeJobId, activeFormatKey, editedPieces]);
 
   return (
     <div className="flex h-screen bg-[#0E0F12] text-gray-100 antialiased font-sans overflow-hidden">
@@ -131,13 +164,13 @@ export default function App() {
             </span>
           </div>
 
-          {jobState?.bundle && (
+          {jobState?.bundle && jobState.job_id === activeJobId && (
             <div className="text-xs text-gray-400 flex items-center gap-4">
               <span>
                 Topic: <strong className="text-gray-200">{jobState.bundle.topic}</strong>
               </span>
               <span>
-                Formats: <strong className="text-purple-400">{Object.keys(jobState.bundle.pieces).length}</strong>
+                Job ID: <strong className="text-purple-400 font-mono">{jobState.job_id.slice(0, 8)}</strong>
               </span>
             </div>
           )}
@@ -157,12 +190,12 @@ export default function App() {
           )}
 
           {/* Progress Tracker when running */}
-          {jobState && (jobState.status === 'processing' || jobState.status === 'queued') && (
+          {jobState && jobState.job_id === activeJobId && (jobState.status === 'processing' || jobState.status === 'queued') && (
             <ProgressTracker steps={jobState.progress_steps} />
           )}
 
           {/* Failed State display */}
-          {jobState && jobState.status === 'failed' && (
+          {jobState && jobState.job_id === activeJobId && jobState.status === 'failed' && (
             <div className="bg-red-950/30 border border-red-900/60 p-6 rounded-xl text-center space-y-2">
               <AlertCircle className="w-8 h-8 text-red-400 mx-auto" />
               <h3 className="text-base font-semibold text-red-200">Generation Failed</h3>
@@ -171,7 +204,7 @@ export default function App() {
           )}
 
           {/* Completed Content Results Area */}
-          {jobState && jobState.status === 'completed' && jobState.bundle && (
+          {jobState && jobState.job_id === activeJobId && jobState.status === 'completed' && jobState.bundle && (
             <div className="space-y-6 animate-fadeIn">
               {/* Multi-Format Selector Tabs */}
               <FormatTabs

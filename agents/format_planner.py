@@ -128,21 +128,21 @@ class MultiFormatPlanner:
         qual_claims = [c.claim_text for c in brief.claim_map.qualified_claims]
 
         hook_map = {
-            "linkedin": f"Most brain training apps don't increase IQ — they just make you faster at puzzle games. Here is what neuroscience actually says about {brief.topic}.",
-            "x_thread": f"90% of brain training apps are selling task-specific practice effects. Here is how adaptive relational training actually expands fluid intelligence (1/{spec.maximum_length}):",
-            "article": f"Rethinking Cognitive Enhancement: How Neuroplasticity and Relational Frame Theory Reshape Fluid Intelligence",
-            "newsletter": f"Why your brain training app isn't raising your IQ (and the 1 cognitive primitive that actually does)",
-            "youtube": f"[VISUAL: Person tapping brain app] What if everything you've been told about raising your IQ is wrong?",
-            "short_video": f"Stop playing 5-minute puzzle games if you want to raise your IQ. Do this instead (0:00-0:03)",
-            "carousel": f"Why Casual Brain Apps Fail (And How Adaptive RFT Training Expands IQ)",
+            "linkedin": f"Understanding the core operational shift in {brief.topic}. Here is what the research synthesis reveals.",
+            "x_thread": f"Key research findings and strategic implications regarding {brief.topic} (1/{spec.maximum_length}):",
+            "article": f"{brief.topic}: A Comprehensive Strategic & Evidence-Based Overview",
+            "newsletter": f"Strategic Breakdown: Key research perspectives on {brief.topic}",
+            "youtube": f"[VISUAL: Key concepts graphic] Exploring the fundamental mechanisms driving {brief.topic}.",
+            "short_video": f"Here is what research reveals about {brief.topic} in 60 seconds (0:00-0:05)",
+            "carousel": f"{brief.topic}: A Grounded Strategic Overview",
         }
 
         cta_map = {
-            "linkedin": "What cognitive skills are you actively training this year?",
-            "x_thread": "If you found this breakdown useful, retweet 1/ to share with fellow learners & follow for more cognitive engineering deep-dives.",
-            "article": "Subscribe to our research newsletter for weekly deep-dives into empirical cognitive performance.",
-            "newsletter": "Hit reply and let me know: What's your current protocol for mental performance?",
-            "youtube": "If you enjoyed this breakdown, smash the subscribe button and drop your thoughts in the comments below!",
+            "linkedin": f"What key observations do you have on {brief.topic}?",
+            "x_thread": f"If you found this breakdown on {brief.topic} useful, repost and follow for more strategic insights.",
+            "article": f"Subscribe for weekly deep-dives into research-backed content strategies.",
+            "newsletter": f"Hit reply and let me know: What is your approach to {brief.topic}?",
+            "youtube": f"Subscribe and drop your thoughts on {brief.topic} in the comments below!",
             "short_video": "Save this short and follow for daily 60-second cognitive science breakdowns!",
             "carousel": "Save this post for your next training session and swipe left to share!",
         }

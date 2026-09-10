@@ -130,27 +130,27 @@ class HumanBrandVoiceWriter:
         voice: VoiceProfile,
     ) -> DraftContent:
         """Deterministic fallback prose generator for offline testing."""
-        safe_str = brief.claim_map.safe_claims[0].claim_text if brief.claim_map.safe_claims else "Neuroplasticity allows neural connections to reorganize."
+        topic = brief.topic
+        safe_str = brief.claim_map.safe_claims[0].claim_text if brief.claim_map.safe_claims else f"Key evidence supports fundamental principles behind {topic}."
         qual_item = brief.claim_map.qualified_claims[0] if brief.claim_map.qualified_claims else None
         qual_str = (
             f"{qual_item.claim_text} ({qual_item.required_attribution_or_caveat})"
             if qual_item and qual_item.required_attribution_or_caveat
-            else "Relational training shows potential gains when using adaptive protocols."
+            else f"Current findings on {topic} suggest targeted benefits under specific conditions."
         )
 
-        safe_clean = safe_str.rstrip(".!? ")
+        hook = strategy.hook_direction if strategy.hook_direction else f"Understanding the core shift in {topic}."
+
         body_paragraphs = [
-            f"Most brain training apps don't increase IQ. They simply make you faster at playing their specific puzzle games.",
-            f"Neuroscience confirms that while adult neuroplasticity is real—and {safe_clean.lower()}—true cognitive expansion requires a fundamentally different architecture.",
-            f"That architecture is Relational Frame Theory (RFT).",
+            f"{hook}",
+            f"Grounded evidence demonstrates that {safe_str.rstrip('.')}.",
             f"{qual_str}",
-            f"Crucially, cognitive growth demands continuous adaptive strain. If the difficulty doesn't scale instantly with your performance ceiling, the brain automates the task and learning plateaus.",
-            f"True mental expansion isn't about casual 5-minute games. It requires structured, adaptive relational training.",
-            f"What cognitive skills are you actively training this year?",
+            f"When evaluating {topic}, long-term outcomes depend on focusing on structural principles rather than superficial shortcuts.",
+            f"What perspectives do you have on {topic}?",
         ]
 
         body_text = "\n\n".join(body_paragraphs)
-        title = "Why Most Brain Training Apps Fail (And How RFT Actually Works)"
+        title = f"{topic}: Strategic Perspectives"
 
         return DraftContent(
             draft_id=f"draft-{hash(brief.topic) & 0xffffffff:08x}",

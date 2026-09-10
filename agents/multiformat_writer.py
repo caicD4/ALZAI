@@ -139,113 +139,115 @@ class MultiFormatContentWriter:
         voice: VoiceProfile,
     ) -> ContentPiece:
         """Deterministic fallback generator for all 7 formats."""
-        safe_str = brief.claim_map.safe_claims[0].claim_text if brief.claim_map.safe_claims else "Neuroplasticity allows neural connections to reorganize."
-        safe_clean = safe_str.rstrip(".!? ")
+        topic = brief.topic
+        safe_str = brief.claim_map.safe_claims[0].claim_text if brief.claim_map.safe_claims else f"Key evidence supports fundamental principles behind {topic}."
         qual_item = brief.claim_map.qualified_claims[0] if brief.claim_map.qualified_claims else None
         qual_str = (
             f"{qual_item.claim_text} ({qual_item.required_attribution_or_caveat})"
             if qual_item and qual_item.required_attribution_or_caveat
-            else "Relational training shows potential gains when using adaptive protocols."
+            else f"Current findings on {topic} suggest targeted benefits when specific protocols are applied."
         )
+
+        hook = format_strategy.hook if hasattr(format_strategy, 'hook') and format_strategy.hook else f"Understanding the core shift in {topic}."
+        cta = format_strategy.cta if hasattr(format_strategy, 'cta') and format_strategy.cta else f"What are your key insights on {topic}?"
 
         fid = spec.format_id
 
         if fid == "x_thread":
             posts = [
-                f"1/ Most brain training apps don't increase IQ. They simply make you faster at playing their specific puzzle games.",
-                f"2/ Neuroscience confirms that adult neuroplasticity is real—and {safe_clean.lower()}—true cognitive expansion requires a fundamentally different architecture.",
-                f"3/ That architecture is Relational Frame Theory (RFT). Training core relational skills (same/different, opposite, conditional) targets abstract reasoning primitives.",
+                f"1/ {hook}",
+                f"2/ Grounded research reveals that {safe_str.rstrip('.')} when examining {topic}.",
+                f"3/ A central mechanism driving this area is how underlying systems structure their core workflows.",
                 f"4/ {qual_str}",
-                f"5/ Crucially, cognitive growth demands continuous adaptive strain. If difficulty doesn't scale instantly with your performance ceiling, the brain automates the task.",
-                f"6/ True mental expansion isn't about casual 5-minute games. It requires structured, adaptive relational training.",
-                f"7/ {format_strategy.cta}",
+                f"5/ Crucially, evaluating {topic} requires separating established consensus from overhyped assumptions.",
+                f"6/ Sustainable outcomes depend on disciplined, evidence-backed implementation.",
+                f"7/ {cta}",
             ]
             body_text = "\n\n".join(posts)
-            title = f"Why Most Brain Training Apps Fail (X/Twitter Thread)"
+            title = f"{topic}: Key Strategic Insights (X/Twitter Thread)"
             sections = posts
 
         elif fid == "article":
             sections_text = [
-                f"# Why Most Brain Training Apps Fail (And How RFT Actually Works)\n\nMost brain training apps don't increase IQ. They simply make you faster at playing their specific puzzle games.",
-                f"## 1. The Core Myth vs Neural Reality\n\nNeuroscience confirms that while adult neuroplasticity is real—and {safe_clean.lower()}—true cognitive expansion requires a fundamentally different architecture.",
-                f"## 2. Relational Frame Theory (RFT) as a Cognitive Primitive\n\nThat architecture is Relational Frame Theory (RFT). {qual_str}",
-                f"## 3. The Necessity of Continuous Adaptive Strain\n\nCrucially, cognitive growth demands continuous adaptive strain. If the difficulty doesn't scale instantly with your performance ceiling, the brain automates the task and learning plateaus.",
-                f"## 4. Conclusion & Next Steps\n\nTrue mental expansion isn't about casual 5-minute games. It requires structured, adaptive relational training.\n\n{format_strategy.cta}",
+                f"# {topic}: A Comprehensive Strategic Overview\n\n{hook}",
+                f"## 1. Grounded Research & Evidence\n\n{safe_str} When analyzing {topic}, research emphasizes structural clarity.",
+                f"## 2. Core Operational Principles\n\n{qual_str}",
+                f"## 3. Practical Implications & Tradeoffs\n\nNavigating {topic} requires balancing speed with systemic rigor to avoid common implementation pitfalls.",
+                f"## 4. Strategic Outlook & Next Steps\n\n{cta}",
             ]
             body_text = "\n\n".join(sections_text)
-            title = "Why Most Brain Training Apps Fail (And How RFT Actually Works)"
+            title = f"{topic}: Strategic Overview"
             sections = sections_text
 
         elif fid == "newsletter":
             body_text = (
-                f"Subject: Why your brain training app isn't raising your IQ\n\n"
+                f"Subject: Strategic Breakdown: {topic}\n\n"
                 f"Hey Friend,\n\n"
-                f"Most brain training apps don't increase IQ. They simply make you faster at playing their specific puzzle games.\n\n"
-                f"Neuroscience confirms that while adult neuroplasticity is real—and {safe_clean.lower()}—true cognitive expansion requires a fundamentally different architecture.\n\n"
-                f"That architecture is Relational Frame Theory (RFT). {qual_str}\n\n"
+                f"{hook}\n\n"
+                f"Here is what the evidence shows: {safe_str}\n\n"
+                f"{qual_str}\n\n"
                 f"Key Takeaways:\n"
-                f"• Differentiate casual puzzle apps from relational training\n"
-                f"• Ensure continuous adaptive difficulty to prevent automaticity\n"
-                f"• Focus on relational skill primitives\n\n"
-                f"{format_strategy.cta}\n\n"
+                f"• Focus on verified underlying mechanisms rather than surface hype\n"
+                f"• Account for specific operational boundary conditions\n"
+                f"• Align implementation with measurable outcomes\n\n"
+                f"{cta}\n\n"
                 f"Best,\n"
                 f"{brand.name if brand else 'ALZAI Team'}"
             )
-            title = "Subject: Why your brain training app isn't raising your IQ"
+            title = f"Subject: Strategic Breakdown: {topic}"
             sections = [s.strip() for s in body_text.split("\n\n") if s.strip()]
 
         elif fid == "youtube":
             body_text = (
                 f"[COLD OPEN - 0:00]\n"
-                f"[VISUAL: Person tapping mobile brain app]\n"
-                f"Most brain training apps don't increase IQ. They simply make you faster at playing their specific puzzle games.\n\n"
+                f"[VISUAL: Key concept graphic for {topic}]\n"
+                f"{hook}\n\n"
                 f"[TITLE CARD & INTRO - 0:15]\n"
-                f"[ON SCREEN: Neuroplasticity vs Brain Apps]\n"
-                f"Neuroscience confirms that while adult neuroplasticity is real—and {safe_clean.lower()}—true cognitive expansion requires a fundamentally different architecture.\n\n"
+                f"[ON SCREEN: Research Breakdown - {topic}]\n"
+                f"Grounded evidence demonstrates that {safe_str.rstrip('.')}.\n\n"
                 f"[DEEP MECHANISM BREAKDOWN - 1:30]\n"
-                f"[VISUAL: RFT relational network diagram]\n"
-                f"That architecture is Relational Frame Theory (RFT). {qual_str}\n\n"
-                f"[ADAPTIVE STRAIN - 3:40]\n"
-                f"Crucially, cognitive growth demands continuous adaptive strain. If difficulty doesn't scale instantly, the brain automates the task.\n\n"
+                f"[VISUAL: System architecture diagram]\n"
+                f"{qual_str}\n\n"
+                f"[PRACTICAL TAKEAWAYS - 3:40]\n"
+                f"Successful execution requires aligning core strategy with verified constraints.\n\n"
                 f"[OUTRO & CTA - 5:00]\n"
-                f"{format_strategy.cta}"
+                f"{cta}"
             )
-            title = "Why Brain Training Apps Fail (YouTube Video Script)"
+            title = f"Demystifying {topic} (YouTube Video Script)"
             sections = [s.strip() for s in body_text.split("\n\n") if s.strip()]
 
         elif fid == "short_video":
             body_text = (
-                f"(0:00-0:03) Stop playing 5-minute puzzle games if you want to raise your IQ! (0:03-0:15) Most brain apps just make you good at the game. (0:15-0:40) Neuroscience shows adult neuroplasticity is real, but real gains require Relational Frame Theory (RFT). {qual_str} (0:40-0:60) You need continuous adaptive difficulty that scales instantly. {format_strategy.cta}"
+                f"(0:00-0:05) {hook} (0:05-0:25) Here is what research shows: {safe_str.rstrip('.')}. "
+                f"(0:25-0:45) {qual_str} (0:45-0:60) {cta}"
             )
-            title = "Why Brain Apps Fail (60s Short Script)"
+            title = f"Why {topic} Matters (60s Short Script)"
             sections = [body_text]
 
         elif fid == "carousel":
             slides = [
-                f"[SLIDE 1: Cover Title]\nWhy Most Brain Training Apps Fail\n(And What Actually Raises IQ)",
-                f"[SLIDE 2: The Core Myth]\nMost brain apps don't raise IQ.\nThey just make you faster at their specific puzzle games.",
-                f"[SLIDE 3: Neural Reality]\nAdult neuroplasticity is real.\nInterventions produce changes in trained tasks—but expansion requires adaptive load.",
-                f"[SLIDE 4: The Mechanism]\nRelational Frame Theory (RFT)\nTraining relational skills (same/different, opposite) enhances fluid reasoning.",
-                f"[SLIDE 5: Evidence]\n{qual_str}",
-                f"[SLIDE 6: The Rule]\nContinuous Adaptive Strain\nDifficulty must scale instantly with your performance ceiling.",
-                f"[SLIDE 7: Summary]\n1. Differentiate apps from RFT\n2. Maintain adaptive load\n3. Train relational primitives",
-                f"[SLIDE 8: Save & Share]\n{format_strategy.cta}",
+                f"[SLIDE 1: Cover Title]\n{topic}\n(Strategic Breakdown)",
+                f"[SLIDE 2: The Core Shift]\n{hook}",
+                f"[SLIDE 3: Evidence Grounding]\n{safe_str}",
+                f"[SLIDE 4: Key Nuance & Context]\n{qual_str}",
+                f"[SLIDE 5: Strategic Takeaway]\nFocus on underlying mechanisms over superficial trends.",
+                f"[SLIDE 6: Actionable Framework]\nApply structured evaluation protocols to your workflow.",
+                f"[SLIDE 7: Summary]\n1. Ground decisions in evidence\n2. Respect operational limits\n3. Drive measurable outcomes",
+                f"[SLIDE 8: Save & Share]\n{cta}",
             ]
             body_text = "\n\n".join(slides)
-            title = "Why Most Brain Training Apps Fail (Slide Carousel)"
+            title = f"{topic} (Slide Carousel)"
             sections = slides
 
         else:  # linkedin default
             body_text = (
-                f"Most brain training apps don't increase IQ. They simply make you faster at playing their specific puzzle games.\n\n"
-                f"Neuroscience confirms that while adult neuroplasticity is real—and {safe_clean.lower()}—true cognitive expansion requires a fundamentally different architecture.\n\n"
-                f"That architecture is Relational Frame Theory (RFT).\n\n"
+                f"{hook}\n\n"
+                f"Research demonstrates that {safe_str.rstrip('.')}.\n\n"
                 f"{qual_str}\n\n"
-                f"Crucially, cognitive growth demands continuous adaptive strain. If the difficulty doesn't scale instantly with your performance ceiling, the brain automates the task and learning plateaus.\n\n"
-                f"True mental expansion isn't about casual 5-minute games. It requires structured, adaptive relational training.\n\n"
-                f"{format_strategy.cta}"
+                f"When building strategies around {topic}, success comes down to focusing on core principles rather than surface-level shortcuts.\n\n"
+                f"{cta}"
             )
-            title = "Why Most Brain Training Apps Fail (And How RFT Actually Works)"
+            title = f"{topic}: Strategic Perspectives"
             sections = [s.strip() for s in body_text.split("\n\n") if s.strip()]
 
         words = len(body_text.split())
