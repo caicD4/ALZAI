@@ -5,10 +5,10 @@ from pydantic import BaseModel, Field
 class BrandProfile(BaseModel):
     """Represents the identity, niche, and strategic positioning of a brand or content creator."""
 
-    name: str = Field(description="Name of the creator, brand, or organization.")
-    niche: str = Field(description="Primary domain or industry niche.")
-    audience: str = Field(description="Target audience demographics and interests.")
-    positioning: str = Field(description="Market positioning statement or unique perspective.")
+    name: str = Field(default="ALZAI Creator", description="Name of the creator, brand, or organization.")
+    niche: str = Field(default="Research & Technology", description="Primary domain or industry niche.")
+    audience: str = Field(default="Thought Leaders & Professionals", description="Target audience demographics and interests.")
+    positioning: str = Field(default="Research-backed insight creator", description="Market positioning statement or unique perspective.")
     topics: List[str] = Field(default_factory=list, description="Core topics covered by the brand.")
     values: List[str] = Field(default_factory=list, description="Core principles or values.")
     recurring_themes: List[str] = Field(default_factory=list, description="Themes frequently emphasized.")

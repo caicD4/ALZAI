@@ -175,8 +175,13 @@ class EvidenceItem(BaseModel):
 # Type alias for the Insight / Claim Interpretation Layer
 ResearchInsight = EvidenceItem
 
-# Import unified Finding from synthesis module for backward compatibility
-from core.synthesis import Finding
+
+def __getattr__(name: str):
+    if name == "Finding":
+        from core.synthesis import Finding
+        return Finding
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 
 
 class ClaimCheck(BaseModel):

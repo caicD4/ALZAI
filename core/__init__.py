@@ -13,6 +13,7 @@ from core.brand_voice import (
     VoiceAlignmentEvaluation,
     VoiceProfile,
 )
+from core.bundle_schemas import ContentBundle, ContentPiece
 from core.evidence import (
     ClaimCheck,
     EvidenceItem,
@@ -23,6 +24,11 @@ from core.evidence import (
     ResearchInsight,
     SOURCE_ROLES,
     Source,
+)
+from core.format_specs import FORMAT_CATALOG, ContentFormatSpec, get_format_spec
+from core.quality_schemas import (
+    ContentQualityIssue,
+    ContentQualityReport,
 )
 from core.research_plan import (
     ContrarianProbe,
@@ -39,19 +45,17 @@ from core.synthesis import (
     ResearchBrief,
 )
 
-from core.quality_schemas import (
-    ContentQualityIssue,
-    ContentQualityReport,
-)
-
 __all__ = [
     "BrandProfile",
     "ClaimCheck",
     "ClaimMap",
     "ClaimMapEntry",
     "ContentAngle",
+    "ContentBundle",
+    "ContentFormatSpec",
     "ContentOutline",
     "ContentOutlinePoint",
+    "ContentPiece",
     "ContentQualityIssue",
     "ContentQualityReport",
     "ContentStrategy",
@@ -59,6 +63,7 @@ __all__ = [
     "DefaultVoiceProfile",
     "DraftContent",
     "EvidenceItem",
+    "FORMAT_CATALOG",
     "FactualError",
     "FetchSnapshot",
     "Finding",

@@ -1,5 +1,5 @@
 import json
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from core.brand_voice import BrandProfile, ContentOutline, ContentOutlinePoint, VoiceProfile
 from core.synthesis import ResearchBrief, ContentStrategy
@@ -135,5 +135,50 @@ class ContentOutliner:
             counterpoints=strategy.counterpoints or ["Far-transfer gains require sustained adaptive effort."],
             conclusion="True cognitive enhancement requires structured, adaptive relational training rather than casual gaming.",
             cta="How do you approach cognitive skill building in your daily routine?",
+            traceable_claim_ids=["safe-1", "qual-1"],
+        )
+
+    def create_format_outline(
+        self,
+        brief: ResearchBrief,
+        format_strategy: Any,  # FormatStrategy
+        spec: Any,  # ContentFormatSpec
+        brand: Optional[BrandProfile] = None,
+        voice: Optional[VoiceProfile] = None,
+    ) -> ContentOutline:
+        """Constructs a format-adapted ContentOutline derived from FormatStrategy."""
+        narrative = getattr(format_strategy, "narrative_structure", []) or spec.structure
+        safe_claims = [c.claim_text for c in brief.claim_map.safe_claims]
+        qual_claims = [c.claim_text for c in brief.claim_map.qualified_claims]
+
+        points: List[ContentOutlinePoint] = []
+        for idx, step_title in enumerate(narrative, start=1):
+            claim_ids = []
+            if idx == 1 and safe_claims:
+                claim_ids.append("safe-1")
+            elif idx == 2 and qual_claims:
+                claim_ids.append("qual-1")
+
+            points.append(
+                ContentOutlinePoint(
+                    point_id=f"pt-{idx}",
+                    title=step_title,
+                    key_concept=f"Key concept for {step_title}: {brief.topic}",
+                    supporting_claim_ids=claim_ids,
+                    evidence_ids=[f.finding_id for f in brief.findings[:1]],
+                    example_or_mechanism=brief.key_mechanisms[0] if brief.key_mechanisms else "Adaptive strain",
+                )
+            )
+
+        return ContentOutline(
+            outline_id=f"outline-{spec.format_id}-{hash(brief.topic) & 0xffffffff:08x}",
+            topic=brief.topic,
+            platform=spec.platform,
+            hook_direction=format_strategy.hook_direction,
+            setup_context=f"Format-adapted context for {spec.format_name} ({spec.platform}).",
+            main_points=points,
+            counterpoints=getattr(format_strategy, "counterpoints", ["Far-transfer requires adaptive difficulty."]),
+            conclusion=format_strategy.desired_takeaway,
+            cta=format_strategy.cta,
             traceable_claim_ids=["safe-1", "qual-1"],
         )

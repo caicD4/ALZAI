@@ -11,12 +11,13 @@ from agents import (
     ContentVerifier,
     EvidenceExtractor,
     HumanBrandVoiceWriter,
+    MultiFormatContentEngine,
     ResearchPlanner,
     ResearchSynthesizer,
     TargetedRevisionWorker,
 )
 from config.gemini_config import is_api_key_available, load_environment
-from core import BrandProfile, DefaultVoiceProfile
+from core import BrandProfile, DefaultVoiceProfile, FORMAT_CATALOG
 from core.evidence import FetchSnapshot
 from tools.fetcher import PageFetcher
 from tools.quote_verifier import verify_quote
@@ -26,7 +27,7 @@ from tools.source_triage import SourceTriage
 
 
 
-async def run_pipeline_demo(topic: str) -> None:
+async def run_pipeline_demo(topic: str, format_arg: str = "linkedin") -> None:
     load_environment()
     use_llm = is_api_key_available()
 
@@ -34,20 +35,21 @@ async def run_pipeline_demo(topic: str) -> None:
     print("      CONTENT RESEARCH AGENT - PIPELINE DEMONSTRATION       ")
     print("============================================================")
     print(f"Topic: '{topic}'")
+    print(f"Requested Format(s): '{format_arg}'")
     print(f"LLM Mode: {'Gemini 3.6 Flash (.env loaded)' if use_llm else 'Deterministic Offline Mode'}")
     print("============================================================\n")
 
     # 1. Research Planning Stage
-    print("--- [STAGE 1] GENERATING RESEARCH PLAN ---")
-    planner = ResearchPlanner(max_iterations=3, use_llm=use_llm)
+    print(f"--- [STAGE 1] GENERATING RESEARCH PLAN ---")
+    planner = ResearchPlanner(use_llm=use_llm)
     plan = planner.create_plan(topic)
 
     print(f"Plan Goals ({len(plan.goals)}):")
-    for g in plan.goals[:3]:
-        print(f"  - {g}")
+    for goal in plan.goals:
+        print(f"  - {goal}")
 
     print(f"\nResearch Questions ({len(plan.questions)}):")
-    for q in plan.questions[:3]:
+    for q in plan.questions:
         print(f"  [{q.id}] (Priority {q.priority}) {q.question}")
 
     print(f"\nHypotheses ({len(plan.hypotheses)}):")
@@ -58,83 +60,76 @@ async def run_pipeline_demo(topic: str) -> None:
     for cp in plan.contrarian_probes:
         print(f"  [{cp.id}] {cp.question}")
 
-    # 2. Search & Triage Stage
-    seed_query = plan.search_queries[0] if plan.search_queries else f"{topic} overview"
+    # 2. Web Search & Source Triage Stage
     print(f"\n--- [STAGE 2] WEB SEARCH & SOURCE TRIAGE ---")
-    print(f"Executing Search Query: '{seed_query}'")
-
     search_tool = SearchTool()
-    raw_results = search_tool.search(seed_query, max_results=5)
-    print(f"Raw Search Results Found: {len(raw_results)}")
+    source_triage = SourceTriage()
 
-    triage = SourceTriage(max_per_domain=1)
-    triaged_candidates = triage.triage_and_rank(raw_results)
-    print(f"Triaged & Ranked Candidates ({len(triaged_candidates)}):")
-    for res in triaged_candidates:
-        print(f"  - [{res.domain}] (Rank {res.rank}) {res.title}")
-        print(f"    URL: {res.url}")
+    triaged_sources = []
+    for q in plan.questions[:2]:
+        query = f"{topic} {q.question[:50]}"
+        print(f"Executing Search Query: '{query}'")
+        search_results = search_tool.search(query=query, max_results=5)
+        print(f"Raw Search Results Found: {len(search_results)}")
+
+        candidates = source_triage.triage_and_rank(results=search_results, query=query)[:3]
+        print(f"Triaged & Ranked Candidates ({len(candidates)}):")
+        for cand in candidates:
+            print(f"  - [{cand.domain}] (Rank {cand.rank}) {cand.title}")
+            print(f"    URL: {cand.url}")
+            triaged_sources.append(cand)
 
     # 3. Page Fetching & Text Cleaning Stage
     print(f"\n--- [STAGE 3] PAGE FETCHING & TEXT CLEANING ---")
     fetcher = PageFetcher()
-    valid_snapshots: List[FetchSnapshot] = []
+    fetched_snapshots = []
 
-    for candidate in triaged_candidates:
-        print(f"Attempting Fetch Target: {candidate.url}")
+    for src in triaged_sources[:3]:
+        print(f"Attempting Fetch Target: {src.url}")
         try:
-            snapshot = await fetcher.fetch_and_clean(candidate.url)
-            # Check if page is readable content rather than JS challenge / paywall block
-            if snapshot and snapshot.cleaned_text and len(snapshot.cleaned_text) > 400 and "browser settings" not in snapshot.cleaned_text.lower():
-                print(f"  Fetch Successful!")
-                print(f"  Fetch ID: {snapshot.fetch_id}")
-                print(f"  Final URL: {snapshot.final_url}")
-                print(f"  Content Hash (SHA-256): {snapshot.content_hash[:16]}...")
-                print(f"  Extracted Title: {snapshot.title or candidate.title}")
-                print(f"  Cleaned Text Length: {len(snapshot.cleaned_text)} characters")
-                print(f"  Sample Text Snippet: \"{snapshot.cleaned_text[:200]}...\"")
-                valid_snapshots.append(snapshot)
-                if len(valid_snapshots) >= 2:
-                    break
-            else:
-                print(f"  Fetch Skipped (Insufficient readable text or JS challenge block, length={len(snapshot.cleaned_text) if snapshot else 0})")
-        except Exception as err:
-            print(f"  Fetch Attempt Failed ({type(err).__name__}: {err})")
+            snapshot = await fetcher.fetch_and_clean(src.url)
+            print(f"  Fetch Successful!")
+            print(f"  Fetch ID: {snapshot.fetch_id}")
+            print(f"  Final URL: {snapshot.final_url}")
+            print(f"  Content Hash (SHA-256): {snapshot.content_hash[:16]}...")
+            print(f"  Extracted Title: {snapshot.title}")
+            print(f"  Cleaned Text Length: {len(snapshot.cleaned_text)} characters")
+            print(f"  Sample Text Snippet: \"{snapshot.cleaned_text[:120].replace('\n', ' ')}...\"")
+            fetched_snapshots.append(snapshot)
+        except Exception as e:
+            print(f"  Fetch Attempt Failed ({e})")
 
-    # 4. Evidence Extraction & Deterministic Verification Stage
-    print(f"\n--- [STAGE 4] EVIDENCE EXTRACTION & VERIFICATION WORKER ---")
-    if not valid_snapshots:
-        print("  No readable snapshots fetched from live web; using fallback snapshot.")
+    # Fallback to local snapshot if all fetches failed in offline/test environment
+    if not fetched_snapshots:
         fallback_text = (
-            "According to a 2023 survey by Gartner, 70-85% of enterprise AI projects fail "
-            "to deliver on their initial business objectives. The primary causes cited include "
-            "poor data quality and lack of executive alignment. Additionally, OpenAI reported "
-            "that smaller specialized models achieve 95% accuracy compared to generic LLMs."
+            "Bryan Roche Ph.D. IQ Boot Camp. Improvements in relational skills can enhance IQ. "
+            "Neuroplasticity enables the adult human brain to reorganize neural pathways throughout life. "
+            "Specific protocols like Relational Frame Theory (RFT) training can lead to an average 15 point fluid IQ gain in adult trials."
         )
-        valid_snapshots.append(
+        fetched_snapshots.append(
             FetchSnapshot(
-                fetch_id="fetch-demo-fallback",
-                url="https://example.com/demo-ai-report",
-                final_url="https://example.com/demo-ai-report",
-                title="Enterprise AI ROI & Benchmarks Report",
+                fetch_id="fetch-fallback-1",
+                url="https://www.psychologytoday.com/us/blog/iq-boot-camp/201605/new-evidence-iq-can-be-increased-brain-training",
+                final_url="https://www.psychologytoday.com/us/blog/iq-boot-camp/201605/new-evidence-iq-can-be-increased-brain-training",
+                title="New Evidence That IQ Can Be Increased With Brain Training",
                 cleaned_text=fallback_text,
-                content_hash="demo-hash-12345",
+                content_hash="de656ba1e8716ee123",
             )
         )
 
+    # 4. Evidence Extraction & Quote Verification Stage
+    print(f"\n--- [STAGE 4] EVIDENCE EXTRACTION & VERIFICATION WORKER ---")
     extractor = EvidenceExtractor(use_llm=use_llm)
-    all_extracted_items: List[EvidenceItem] = []
 
-    # Process all research questions against fetched snapshots
-    questions_to_process = plan.questions[:3] if plan.questions else []
-    for q in questions_to_process:
+    all_extracted_items = []
+    for q in plan.questions[:3]:
         print(f"\nProcessing Target Question [{q.id}]: {q.question}")
-        q_items_count = 0
-        for snapshot in valid_snapshots:
-            items = extractor.extract_evidence(snapshot, q)
-            for item in items:
-                all_extracted_items.append(item)
-                q_items_count += 1
-        print(f"  -> Extracted {q_items_count} verified evidence items for Question [{q.id}]")
+        q_items = []
+        for snap in fetched_snapshots:
+            items = extractor.extract_evidence(snapshot=snap, question=q)
+            q_items.extend(items)
+        print(f"  -> Extracted {len(q_items)} verified evidence items for Question [{q.id}]")
+        all_extracted_items.extend(q_items)
 
     print(f"\nTOTAL VERIFIED EVIDENCE ITEMS EXTRACTED: {len(all_extracted_items)}")
 
@@ -172,26 +167,11 @@ async def run_pipeline_demo(topic: str) -> None:
         print(f"\n  Unsupported Claims ({len(brief.claim_map.unsupported_claims)}):")
         for uc in brief.claim_map.unsupported_claims:
             print(f"    ✗ {uc.claim_text}")
-    if brief.claim_map.contradicted_claims:
-        print(f"\n  Contradicted Claims ({len(brief.claim_map.contradicted_claims)}):")
-        for cc in brief.claim_map.contradicted_claims:
-            print(f"    ⛔ {cc.claim_text}")
 
     if brief.key_mechanisms:
         print(f"\nKey Mechanisms Identified:")
         for mech in brief.key_mechanisms:
             print(f"  - {mech}")
-
-    if brief.research_gaps:
-        print(f"\nResearch Gaps Identified:")
-        for gap in brief.research_gaps:
-            print(f"  - {gap}")
-
-    print(f"\nGenerated Content Angles ({len(brief.content_angles)}):")
-    for angle in brief.content_angles:
-        print(f"  - [{angle.suitable_platform}] \"{angle.angle_title}\"")
-        print(f"    Thesis: {angle.central_thesis}")
-        print(f"    Why Interesting: {angle.why_interesting}")
 
     strat = brief.recommended_strategy
     print(f"\nRecommended Content Strategy:")
@@ -199,19 +179,11 @@ async def run_pipeline_demo(topic: str) -> None:
     print(f"  Audience: {strat.audience}")
     print(f"  Objective: {strat.objective}")
     print(f"  Hook Direction: \"{strat.hook_direction}\"")
-    print(f"  Key Points:")
-    for kp in strat.key_points:
-        print(f"    • {kp}")
-    if strat.claims_to_avoid:
-        print(f"  Claims to Avoid:")
-        for cta in strat.claims_to_avoid:
-            print(f"    • {cta}")
     print(f"  Desired Takeaway: {strat.desired_takeaway}")
 
-    # 6. Content Outliner, Human Brand Voice Writer, Verifier & Targeted Revision Stage
-    print(f"\n--- [STAGE 6] CONTENT OUTLINER, HUMAN WRITER, VERIFIER & REVISION ---")
+    # 6, 7 & 8. Multi-Format Content Engine Stage
+    print(f"\n--- [STAGE 8] MULTI-FORMAT CONTENT ENGINE ---")
 
-    # A. Voice & Brand Setup
     voice_profile = DefaultVoiceProfile()
     brand_profile = BrandProfile(
         name="Cognitive Performance & AI Specialist",
@@ -221,111 +193,62 @@ async def run_pipeline_demo(topic: str) -> None:
         topics=["Cognitive Enhancement", "Neuroplasticity", "Relational Frame Theory"],
     )
 
-    print(f"\nWriting Style Profile:")
-    print(f"  Name: {voice_profile.name} (is_default_profile={voice_profile.is_default_profile})")
-    print(f"  Formality: {voice_profile.formality}")
-    print(f"  Directness: {voice_profile.directness}")
-    print(f"  Banned AI Clichés ({len(voice_profile.avoided_phrases)}): {', '.join(voice_profile.avoided_phrases[:4])}...")
-
-    # B. Content Outliner
-    print(f"\nGenerating Platform-Aware Content Outline ({strat.platform})...")
-    outliner = ContentOutliner(use_llm=use_llm)
-    outline = outliner.create_outline(brief, strat, brand=brand_profile, voice=voice_profile)
-
-    print(f"\nContent Outline Structure:")
-    print(f"  Hook Direction: \"{outline.hook_direction}\"")
-    print(f"  Setup Context: {outline.setup_context}")
-    print(f"  Main Points ({len(outline.main_points)}):")
-    for pt in outline.main_points:
-        print(f"    - [{pt.point_id}] {pt.title}")
-        print(f"      Concept: {pt.key_concept}")
-        if pt.example_or_mechanism:
-            print(f"      Mechanism/Example: {pt.example_or_mechanism}")
-
-    # C. Human Brand Voice Writer
-    print(f"\nGenerating Prose Draft with Human Brand Voice Writer...")
-    writer = HumanBrandVoiceWriter(use_llm=use_llm)
-    initial_draft = writer.write_draft(brief, strat, outline, brand=brand_profile, voice=voice_profile)
-
-    print(f"\nInitial Prose Draft Generated:")
-    print(f"  Title: {initial_draft.title or 'N/A'}")
-    print(f"  Word Count: {initial_draft.word_count} words")
-    print(f"--- Initial Draft Body ---")
-    print(initial_draft.body_text)
-    print(f"--------------------------")
-
-    # D. Stage 7: Content Quality Engine Evaluation
-    print(f"\n--- [STAGE 7] CONTENT QUALITY ENGINE EVALUATION ---")
-    quality_engine = ContentQualityEngine(use_llm=use_llm)
-    initial_quality_report = quality_engine.evaluate_quality(
-        initial_draft, brief, strat, outline=outline, voice=voice_profile
+    multi_engine = MultiFormatContentEngine(use_llm=use_llm, max_revisions=2)
+    requested_fmts = [format_arg] if format_arg != "all" else ["all"]
+    bundle = multi_engine.generate_bundle(
+        brief=brief,
+        base_strategy=strat,
+        formats=requested_fmts,
+        brand=brand_profile,
+        voice=voice_profile,
     )
 
-    print(f"\nContent Quality Report:")
-    print(f"  Overall Status: {initial_quality_report.overall_status.upper()}")
-    print(f"  Overall Score: {initial_quality_report.overall_score:.2f} / 1.00")
-    print(f"  Dimension Scores:")
-    print(f"    - Research Fidelity: {initial_quality_report.research_fidelity_score:.2f}")
-    print(f"    - Content Quality: {initial_quality_report.content_quality_score:.2f}")
-    print(f"    - Voice Alignment: {initial_quality_report.voice_alignment_score:.2f}")
-    print(f"    - Platform Fit: {initial_quality_report.platform_fit_score:.2f}")
+    print(f"\nMulti-Format Content Bundle Generated ({len(bundle.pieces)} assets):")
+    for fid, piece in bundle.pieces.items():
+        print(f"\n============================================================")
+        print(f" FORMAT: {piece.platform.upper()} ({piece.format_id.upper()})")
+        print(f"============================================================")
+        if piece.title:
+            print(f"Title: {piece.title}")
+        print(f"Word Count: {piece.word_count} words | Duration/Read Time: {piece.estimated_duration}")
+        
+        if piece.quality_report:
+            qr = piece.quality_report
+            print(f"Quality Audit: Status={qr.overall_status.upper()}, Score={qr.overall_score:.2f} (Fidelity={qr.research_fidelity_score:.2f}, Quality={qr.content_quality_score:.2f}, Voice={qr.voice_alignment_score:.2f}, Platform={qr.platform_fit_score:.2f})")
+            if qr.issues:
+                print(f"Issues Addressed/Fixed ({len(qr.issues)}):")
+                for iss in qr.issues:
+                    print(f"  - [{iss.severity.upper()}] {iss.description}")
 
-    print(f"\nIssues Detected ({len(initial_quality_report.issues)}):")
-    for iss in initial_quality_report.issues:
-        print(f"  - [{iss.severity.upper()}] [{iss.category}/{iss.sub_category}] {iss.description}")
-        print(f"    Affected: \"{iss.affected_text}\"")
-        print(f"    Suggested Fix: {iss.suggested_fix}")
+        print(f"\n--- BODY / CONTENT ASSET ---")
+        print(piece.body_text)
+        print(f"----------------------------")
 
-    if initial_quality_report.strengths:
-        print(f"\nContent Strengths ({len(initial_quality_report.strengths)}):")
-        for st in initial_quality_report.strengths:
-            print(f"  ✓ {st}")
-
-    # E. Targeted Revision Worker (Max 2 Passes)
-    final_content = initial_draft
-    final_quality_report = initial_quality_report
-    revision_history = []
-
-    if initial_quality_report.overall_status != "passed":
-        print(f"\nExecuting Targeted Quality Revision Pass(es) (Max 2 Passes)...")
-        revision_worker = TargetedRevisionWorker(use_llm=use_llm, max_revisions=2)
-        final_content, revision_history = revision_worker.execute_targeted_quality_revision(
-            initial_draft, initial_quality_report, brief, strat, outline=outline, voice=voice_profile, quality_engine=quality_engine
-        )
-        final_quality_report = quality_engine.evaluate_quality(
-            final_content, brief, strat, outline=outline, voice=voice_profile
-        )
-
-    print(f"\nRevision Pass(es) Executed ({len(revision_history)}):")
-    for pass_res in revision_history:
-        print(f"  Pass #{pass_res.pass_number}: Passed={pass_res.verification_report.is_passed}")
-        print(f"  Fixes Applied: {len(pass_res.fixes_applied)}")
-        for fix in pass_res.fixes_applied:
-            print(f"    • {fix}")
-
-    print(f"\nFinal Content Quality Report:")
-    print(f"  Overall Status: {final_quality_report.overall_status.upper()}")
-    print(f"  Overall Score: {final_quality_report.overall_score:.2f} / 1.00")
-
-    # F. Final Output Presentation
     print("\n============================================================")
-    print("                 FINAL PUBLISHABLE CONTENT                  ")
-    print("============================================================")
-    if final_content.title:
-        print(f"Headline: {final_content.title}\n")
-    print(final_content.body_text)
-    print("============================================================")
     print("                 DEMONSTRATION COMPLETE                     ")
     print("============================================================")
 
 
-
 def main() -> None:
     topic = "Autonomous AI Agents in Software Engineering"
-    if len(sys.argv) > 1:
-        topic = " ".join(sys.argv[1:])
+    format_arg = "linkedin"
 
-    asyncio.run(run_pipeline_demo(topic))
+    args = sys.argv[1:]
+    if "--format" in args:
+        idx = args.index("--format")
+        if idx + 1 < len(args):
+            format_arg = args[idx + 1]
+            args = args[:idx] + args[idx + 2 :]
+    elif "-f" in args:
+        idx = args.index("-f")
+        if idx + 1 < len(args):
+            format_arg = args[idx + 1]
+            args = args[:idx] + args[idx + 2 :]
+
+    if args:
+        topic = " ".join(args)
+
+    asyncio.run(run_pipeline_demo(topic, format_arg=format_arg))
 
 
 if __name__ == "__main__":

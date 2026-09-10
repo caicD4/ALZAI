@@ -2,6 +2,9 @@
 
 from agents.content_quality import ContentQualityEngine
 from agents.extractor import DocumentChunker, EvidenceExtractor
+from agents.format_planner import FormatStrategy, MultiFormatPlanner
+from agents.multi_format_engine import MultiFormatContentEngine
+from agents.multiformat_writer import MultiFormatContentWriter
 from agents.outliner import ContentOutliner
 from agents.planner import ResearchPlanner
 from agents.revision import TargetedRevisionWorker
@@ -16,7 +19,11 @@ __all__ = [
     "ContentVerifier",
     "DocumentChunker",
     "EvidenceExtractor",
+    "FormatStrategy",
     "HumanBrandVoiceWriter",
+    "MultiFormatContentEngine",
+    "MultiFormatContentWriter",
+    "MultiFormatPlanner",
     "ResearchPlanner",
     "ResearchSynthesizer",
     "TargetedRevisionWorker",
